@@ -568,11 +568,17 @@ export async function startGateway() {
       attempt++;
       try {
         await fetch(`http://127.0.0.1:${port}/health`);
-        console.log(`Gateway daemon alive on port ${port} after ${attempt} attempts — adopting`);
-        daemonAdopted = true;
-        gatewayStartTime = gatewayStartTime || Date.now();
-        setGatewayReady(true);
-        startDaemonPoll(port);
+        // Daemon is alive after self-restart. Rather than adopting blindly,
+        // stop it and restart through the wrapper so config flags like
+        // dangerouslyDisableDeviceAuth are re-injected into the config file.
+        // This is essential after in-app updates via the /openclaw dashboard
+        // because the new version may not honor flags written by older code.
+        console.log(`Gateway daemon alive on port ${port} after ${attempt} attempts — restarting through wrapper for config consistency`);
+        daemonAdopted = true;   // mark adopted so stopGateway can find it
+        isShuttingDown = false;
+        await stopGateway();
+        gatewayStartTime = null;
+        await startGateway();
         return;
       } catch {
         // Daemon not responding yet
@@ -931,6 +937,32 @@ function pollUntilReady(port, configFile, originalToken, stateDir) {
 }
 
 /**
+ * Kill the gateway daemon listening on the given port.
+ * Used when we need to stop an adopted daemon that we don't have a process handle for.
+ * Sends SIGTERM to any process owning the port, waits briefly, then SIGKILL if needed.
+ */
+async function killDaemonOnPort(port, timeoutMs = 10000) {
+  const result = await runExec('sh', ['-c', `lsof -ti tcp:${port} -s tcp:listen 2>/dev/null || fuser ${port}/tcp 2>/dev/null | tr -d ' '`]);
+  const pids = (result.stdout || '').trim().split(/\s+/).filter(Boolean).map(Number).filter(n => n > 0 && n !== process.pid);
+  if (pids.length === 0) return;
+
+  for (const pid of pids) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 500));
+    const alive = pids.some(pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+    if (!alive) return;
+  }
+
+  for (const pid of pids) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+/**
  * Stop the gateway gracefully
  * @returns {Promise<void>}
  */
@@ -943,8 +975,11 @@ export async function stopGateway() {
   stopDaemonPoll();
   console.log('Stopping gateway...');
 
-  // If we adopted a daemon (no process handle), just clear the flag
+  // If we adopted a daemon (no process handle), kill via port lookup
   if (daemonAdopted && !gatewayProcess) {
+    const port = process.env.INTERNAL_GATEWAY_PORT || '18789';
+    console.log(`Stopping adopted daemon on port ${port}...`);
+    await killDaemonOnPort(port);
     daemonAdopted = false;
     setGatewayReady(false);
     return;
