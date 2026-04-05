@@ -1098,7 +1098,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
 
         <div class="before-section" style="text-align: left;">
           <h3 data-i18n="step1.beforeTitle">Before you begin</h3>
-          <p style="color: var(--muted); font-size: 13px; margin: 0 0 10px 0;" data-i18n="step1.beforeDesc">You'll need an API key or OAuth login from at least one provider:</p>
+          <p style="color: var(--muted); font-size: 13px; margin: 0 0 10px 0;" data-i18n="step1.beforeDesc">You'll need an API key from at least one provider:</p>
           <div class="key-links">
             <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" class="key-link">Anthropic</a>
             <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="key-link">OpenAI</a>
@@ -1149,6 +1149,18 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
         </div>
 
         <div id="step2-error" class="inline-error"></div>
+
+        <div class="oauth-info-box" style="margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; color: var(--muted);">
+          <strong style="color: var(--text);" data-i18n="step2.oauthTitle">Prefer OAuth?</strong>
+          <span data-i18n="step2.oauthDesc">Claude CLI and OpenAI Codex are pre-installed. Switch to <strong>Terminal Mode</strong> and run:</span>
+          <code style="display: block; margin: 8px 0 4px; padding: 6px 10px; border-radius: 4px; background: var(--bg); font-size: 12px; color: var(--text);">openclaw onboard --auth-choice anthropic-cli</code>
+          <code style="display: block; margin: 0 0 8px; padding: 6px 10px; border-radius: 4px; background: var(--bg); font-size: 12px; color: var(--text);">openclaw onboard --auth-choice openai-codex</code>
+          <span>
+            <a href="https://docs.openclaw.ai/concepts/oauth#anthropic-claude-cli" target="_blank" rel="noopener" style="color: var(--accent);" data-i18n="step2.oauthClaudeLink">Claude CLI docs</a>
+            &nbsp;\u00b7&nbsp;
+            <a href="https://docs.openclaw.ai/concepts/oauth#openai-codex" target="_blank" rel="noopener" style="color: var(--accent);" data-i18n="step2.oauthCodexLink">Codex docs</a>
+          </span>
+        </div>
       </div>
       <div class="wizard-nav">
         <button class="btn-secondary" onclick="goToStep(1)" data-i18n="nav.back">&larr; Back</button>
@@ -1281,7 +1293,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step1.list3': 'Pick skills',
           'step1.list4': 'Deploy and start chatting',
           'step1.beforeTitle': 'Before you begin',
-          'step1.beforeDesc': "You'll need an API key or OAuth login from at least one provider:",
+          'step1.beforeDesc': "You'll need an API key from at least one provider:",
           'step1.moreProviders': '+ 8 more providers',
           'step1.getStarted': 'Get Started \u2192',
           'step2.selectProvider': 'Select your AI provider',
@@ -1294,6 +1306,10 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step2.apiKeyHintLink': 'Get your key from ',
           'step2.persona': 'Agent Persona (optional)',
           'step2.next': 'Next: Channels \u2192',
+          'step2.oauthTitle': 'Prefer OAuth?',
+          'step2.oauthDesc': 'Claude CLI and OpenAI Codex are pre-installed. Switch to Terminal Mode and run:',
+          'step2.oauthClaudeLink': 'Claude CLI docs',
+          'step2.oauthCodexLink': 'Codex docs',
           'step2.err.noProvider': 'Please select an AI provider.',
           'step2.err.noAuth': 'Please select an authentication method.',
           'step2.err.noKey': 'Please enter your API key or token.',
@@ -1360,7 +1376,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step1.list3': '\u9078\u64C7\u6280\u80FD',
           'step1.list4': '\u90E8\u7F72\u4E26\u958B\u59CB\u804A\u5929',
           'step1.beforeTitle': '\u958B\u59CB\u4E4B\u524D',
-          'step1.beforeDesc': '\u60A8\u9700\u8981\u81F3\u5C11\u4E00\u500B\u63D0\u4F9B\u8005\u7684 API \u91D1\u9470\u6216 OAuth \u767B\u5165\uFF1A',
+          'step1.beforeDesc': '\u60A8\u9700\u8981\u81F3\u5C11\u4E00\u500B\u63D0\u4F9B\u8005\u7684 API \u91D1\u9470\uFF1A',
           'step1.moreProviders': '+ \u53E6\u5916 8 \u500B\u63D0\u4F9B\u8005',
           'step1.getStarted': '\u958B\u59CB\u8A2D\u5B9A \u2192',
           'step2.selectProvider': '\u9078\u64C7\u60A8\u7684 AI \u63D0\u4F9B\u8005',
@@ -1373,6 +1389,10 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step2.apiKeyHintLink': '\u5F9E\u4EE5\u4E0B\u7DB2\u7AD9\u53D6\u5F97\u91D1\u9470\uFF1A',
           'step2.persona': '\u52A9\u7406\u89D2\u8272\uFF08\u9078\u586B\uFF09',
           'step2.next': '\u4E0B\u4E00\u6B65\uFF1A\u983B\u9053 \u2192',
+          'step2.oauthTitle': '\u504F\u597D OAuth\uFF1F',
+          'step2.oauthDesc': 'Claude CLI \u548C OpenAI Codex \u5DF2\u9810\u88DD\u3002\u5207\u63DB\u5230\u7D42\u7AEF\u6A21\u5F0F\u4E26\u57F7\u884C\uFF1A',
+          'step2.oauthClaudeLink': 'Claude CLI \u6587\u4EF6',
+          'step2.oauthCodexLink': 'Codex \u6587\u4EF6',
           'step2.err.noProvider': '\u8ACB\u9078\u64C7\u4E00\u500B AI \u63D0\u4F9B\u8005\u3002',
           'step2.err.noAuth': '\u8ACB\u9078\u64C7\u9A57\u8B49\u65B9\u5F0F\u3002',
           'step2.err.noKey': '\u8ACB\u8F38\u5165\u60A8\u7684 API \u91D1\u9470\u6216\u4EE3\u5E63\u3002',
@@ -1439,7 +1459,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step1.list3': '\u9009\u62E9\u6280\u80FD',
           'step1.list4': '\u90E8\u7F72\u5E76\u5F00\u59CB\u804A\u5929',
           'step1.beforeTitle': '\u5F00\u59CB\u4E4B\u524D',
-          'step1.beforeDesc': '\u60A8\u9700\u8981\u81F3\u5C11\u4E00\u4E2A\u63D0\u4F9B\u8005\u7684 API \u5BC6\u94A5\u6216 OAuth \u767B\u5F55\uFF1A',
+          'step1.beforeDesc': '\u60A8\u9700\u8981\u81F3\u5C11\u4E00\u4E2A\u63D0\u4F9B\u8005\u7684 API \u5BC6\u94A5\uFF1A',
           'step1.moreProviders': '+ \u53E6\u5916 8 \u4E2A\u63D0\u4F9B\u8005',
           'step1.getStarted': '\u5F00\u59CB\u8BBE\u7F6E \u2192',
           'step2.selectProvider': '\u9009\u62E9\u60A8\u7684 AI \u63D0\u4F9B\u8005',
@@ -1452,6 +1472,10 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step2.apiKeyHintLink': '\u4ECE\u4EE5\u4E0B\u7F51\u7AD9\u83B7\u53D6\u5BC6\u94A5\uFF1A',
           'step2.persona': '\u52A9\u7406\u89D2\u8272\uFF08\u53EF\u9009\uFF09',
           'step2.next': '\u4E0B\u4E00\u6B65\uFF1A\u9891\u9053 \u2192',
+          'step2.oauthTitle': '\u504F\u597D OAuth\uFF1F',
+          'step2.oauthDesc': 'Claude CLI \u548C OpenAI Codex \u5DF2\u9884\u88C5\u3002\u5207\u6362\u5230\u7EC8\u7AEF\u6A21\u5F0F\u5E76\u8FD0\u884C\uFF1A',
+          'step2.oauthClaudeLink': 'Claude CLI \u6587\u6863',
+          'step2.oauthCodexLink': 'Codex \u6587\u6863',
           'step2.err.noProvider': '\u8BF7\u9009\u62E9\u4E00\u4E2A AI \u63D0\u4F9B\u8005\u3002',
           'step2.err.noAuth': '\u8BF7\u9009\u62E9\u9A8C\u8BC1\u65B9\u5F0F\u3002',
           'step2.err.noKey': '\u8BF7\u8F93\u5165\u60A8\u7684 API \u5BC6\u94A5\u6216\u4EE4\u724C\u3002',
@@ -1518,7 +1542,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step1.list3': '\u30B9\u30AD\u30EB\u3092\u9078\u629E',
           'step1.list4': '\u30C7\u30D7\u30ED\u30A4\u3057\u3066\u30C1\u30E3\u30C3\u30C8\u958B\u59CB',
           'step1.beforeTitle': '\u59CB\u3081\u308B\u524D\u306B',
-          'step1.beforeDesc': '\u5C11\u306A\u304F\u3068\u3082 1 \u3064\u306E\u30D7\u30ED\u30D0\u30A4\u30C0\u306E API \u30AD\u30FC\u307E\u305F\u306F OAuth \u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059\uFF1A',
+          'step1.beforeDesc': '\u5C11\u306A\u304F\u3068\u3082 1 \u3064\u306E\u30D7\u30ED\u30D0\u30A4\u30C0\u306E API \u30AD\u30FC\u304C\u5FC5\u8981\u3067\u3059\uFF1A',
           'step1.moreProviders': '+ \u4ED6 8 \u30D7\u30ED\u30D0\u30A4\u30C0',
           'step1.getStarted': '\u59CB\u3081\u308B \u2192',
           'step2.selectProvider': 'AI \u30D7\u30ED\u30D0\u30A4\u30C0\u3092\u9078\u629E',
@@ -1531,6 +1555,10 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step2.apiKeyHintLink': '\u4EE5\u4E0B\u3067\u30AD\u30FC\u3092\u53D6\u5F97\uFF1A',
           'step2.persona': '\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u30DA\u30EB\u30BD\u30CA\uFF08\u4EFB\u610F\uFF09',
           'step2.next': '\u6B21\u3078\uFF1A\u30C1\u30E3\u30CD\u30EB \u2192',
+          'step2.oauthTitle': 'OAuth \u3092\u5E0C\u671B\uFF1F',
+          'step2.oauthDesc': 'Claude CLI \u3068 OpenAI Codex \u306F\u30D7\u30EA\u30A4\u30F3\u30B9\u30C8\u30FC\u30EB\u6E08\u307F\u3067\u3059\u3002\u30BF\u30FC\u30DF\u30CA\u30EB\u30E2\u30FC\u30C9\u306B\u5207\u308A\u66FF\u3048\u3066\u5B9F\u884C\uFF1A',
+          'step2.oauthClaudeLink': 'Claude CLI \u30C9\u30AD\u30E5\u30E1\u30F3\u30C8',
+          'step2.oauthCodexLink': 'Codex \u30C9\u30AD\u30E5\u30E1\u30F3\u30C8',
           'step2.err.noProvider': 'AI \u30D7\u30ED\u30D0\u30A4\u30C0\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002',
           'step2.err.noAuth': '\u8A8D\u8A3C\u65B9\u6CD5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002',
           'step2.err.noKey': 'API \u30AD\u30FC\u307E\u305F\u306F\u30C8\u30FC\u30AF\u30F3\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002',
@@ -1597,7 +1625,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step1.list3': '\uC2A4\uD0AC \uC120\uD0DD',
           'step1.list4': '\uBC30\uD3EC\uD558\uACE0 \uCC44\uD305 \uC2DC\uC791',
           'step1.beforeTitle': '\uC2DC\uC791\uD558\uAE30 \uC804\uC5D0',
-          'step1.beforeDesc': '\uCD5C\uC18C \uD558\uB098\uC758 \uC81C\uACF5\uC790 API \uD0A4 \uB610\uB294 OAuth \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4:',
+          'step1.beforeDesc': '\uCD5C\uC18C \uD558\uB098\uC758 \uC81C\uACF5\uC790 API \uD0A4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4:',
           'step1.moreProviders': '+ 8\uAC1C \uCD94\uAC00 \uC81C\uACF5\uC790',
           'step1.getStarted': '\uC2DC\uC791\uD558\uAE30 \u2192',
           'step2.selectProvider': 'AI \uC81C\uACF5\uC790\uB97C \uC120\uD0DD\uD558\uC138\uC694',
@@ -1610,6 +1638,10 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           'step2.apiKeyHintLink': '\uB2E4\uC74C\uC5D0\uC11C \uD0A4\uB97C \uBC1B\uC73C\uC138\uC694: ',
           'step2.persona': '\uC5D0\uC774\uC804\uD2B8 \uD398\uB974\uC18C\uB098 (\uC120\uD0DD)',
           'step2.next': '\uB2E4\uC74C: \uCC44\uB110 \u2192',
+          'step2.oauthTitle': 'OAuth\uB97C \uC120\uD638\uD558\uC2DC\uB098\uC694?',
+          'step2.oauthDesc': 'Claude CLI\uC640 OpenAI Codex\uAC00 \uC0AC\uC804 \uC124\uCE58\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uD130\uBBF8\uB110 \uBAA8\uB4DC\uB85C \uC804\uD658\uD558\uC5EC \uC2E4\uD589\uD558\uC138\uC694:',
+          'step2.oauthClaudeLink': 'Claude CLI \uBB38\uC11C',
+          'step2.oauthCodexLink': 'Codex \uBB38\uC11C',
           'step2.err.noProvider': 'AI \uC81C\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.',
           'step2.err.noAuth': '\uC778\uC99D \uBC29\uBC95\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.',
           'step2.err.noKey': 'API \uD0A4 \uB610\uB294 \uD1A0\uD070\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.',

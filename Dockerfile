@@ -53,6 +53,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # so it's baked into the image and not hidden by the Railway volume mount.
 RUN npm install -g openclaw@${OPENCLAW_VERSION}
 
+# Install Claude CLI and OpenAI Codex CLI for OAuth-based authentication.
+# These are pre-installed so users can run `claude auth login` or
+# `codex auth login` in Terminal Mode to set up OAuth providers.
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
+
 # Optional: Install Java + signal-cli for Signal channel support
 # Set INSTALL_SIGNAL_CLI=true in Railway build args if needed
 RUN if [ "$INSTALL_SIGNAL_CLI" = "true" ]; then \
