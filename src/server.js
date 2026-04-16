@@ -12,7 +12,7 @@
  */
 
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, request as httpRequest } from 'http';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, readdirSync, lstatSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -1602,6 +1602,25 @@ app.post('/openclaw', openclawHandler);
 app.get('/openclaw/{*path}', openclawHandler);  // catch subpath refreshes like /openclaw/chat?session=...
 
 // Proxy all other requests to gateway (when running)
+// WhatsApp webhook receiver proxy — routes /webhook/whatsapp to internal port 8787
+app.all('/webhook/whatsapp', (req, res) => {
+  const options = {
+    hostname: '127.0.0.1',
+    port: 8787,
+    path: req.url,
+    method: req.method,
+    headers: req.headers
+  };
+  const proxyReq = httpRequest(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', () => {
+    res.status(502).json({ error: 'Webhook receiver not available' });
+  });
+  req.pipe(proxyReq);
+});
+
 // Note: Using no path argument to avoid Express 5 stripping req.url
 // (/{*path} would set req.url to "/" for every request, breaking the proxy)
 app.use((req, res, next) => {
