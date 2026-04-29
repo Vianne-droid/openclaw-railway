@@ -28,7 +28,7 @@ COPY src/ ./src/
 FROM node:24-bookworm-slim AS runtime
 
 # Build args for version and optional features
-ARG OPENCLAW_VERSION=2026.4.21
+ARG OPENCLAW_VERSION=2026.4.26
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
 ARG SIGNAL_CLI_VERSION=0.13.24
@@ -79,7 +79,7 @@ RUN groupadd --system --gid 1001 openclaw && \
 RUN mkdir -p /opt/openclaw-bin && \
     printf '#!/bin/bash\n\
 if [ -z "$OPENCLAW_GATEWAY_TOKEN" ] && [ -f "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token" ]; then\n\
-  export OPENCLAW_GATEWAY_TOKEN=$(cat "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token")\n\
+  export OPENCLAW_GATEWAY_TOKEN=*** "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token")\n\
 fi\n\
 if [ -z "$OPENCLAW_BUNDLED_SKILLS_DIR" ]; then\n\
   export OPENCLAW_BUNDLED_SKILLS_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}/skills"\n\
