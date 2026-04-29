@@ -668,3 +668,5 @@ This template is open source and available under the [MIT License](LICENSE).
 ---
 
 Made with care for the AI assistant community
+
+<!-- build-trigger: 2026-04-29T10:15:00Z -->
