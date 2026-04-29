@@ -79,7 +79,7 @@ RUN groupadd --system --gid 1001 openclaw && \
 RUN mkdir -p /opt/openclaw-bin && \
     printf '#!/bin/bash\n\
 if [ -z "$OPENCLAW_GATEWAY_TOKEN" ] && [ -f "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token" ]; then\n\
-  export OPENCLAW_GATEWAY_TOKEN=*** "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token")\n\
+  export OPENCLAW_GATEWAY_TOKEN=$(cat "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token")\n\
 fi\n\
 if [ -z "$OPENCLAW_BUNDLED_SKILLS_DIR" ]; then\n\
   export OPENCLAW_BUNDLED_SKILLS_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}/skills"\n\
