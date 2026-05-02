@@ -192,6 +192,26 @@ if [ -d "/bundled-skills" ]; then
     done
 fi
 
+# Start heavy-cron-loop.sh in background (replaces wa-realtime-sync +
+# mcp-zombie-cleanup OpenClaw crons). Bypasses the worker-init saturation
+# bug by running python scripts directly without spawning agentTurn workers.
+# Watchdog cron (every 15 min) restarts it if it dies.
+HEAVY_LOOP_SCRIPT="$OPENCLAW_WORKSPACE_DIR/scripts/heavy-cron-loop.sh"
+HEAVY_LOOP_LOG="$OPENCLAW_STATE_DIR/logs/heavy-cron-loop.stdout"
+if [ -x "$HEAVY_LOOP_SCRIPT" ]; then
+    mkdir -p "$(dirname "$HEAVY_LOOP_LOG")"
+    chown openclaw:openclaw "$HEAVY_LOOP_LOG" 2>/dev/null || true
+    if [ "$(id -u)" = "0" ]; then
+        su -s /bin/bash openclaw -c "nohup bash '$HEAVY_LOOP_SCRIPT' >> '$HEAVY_LOOP_LOG' 2>&1 &"
+    else
+        nohup bash "$HEAVY_LOOP_SCRIPT" >> "$HEAVY_LOOP_LOG" 2>&1 &
+        disown 2>/dev/null || true
+    fi
+    echo "Started heavy-cron-loop in background (logs: $HEAVY_LOOP_LOG)"
+else
+    echo "heavy-cron-loop.sh not found at $HEAVY_LOOP_SCRIPT (will be started by watchdog cron when available)"
+fi
+
 # Log startup info
 echo ""
 echo "OpenClaw Railway Template"
