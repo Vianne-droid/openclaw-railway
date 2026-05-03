@@ -212,6 +212,26 @@ else
     echo "heavy-cron-loop.sh not found at $HEAVY_LOOP_SCRIPT (will be started by watchdog cron when available)"
 fi
 
+# Start loop-supervisor.sh in background. Calls heavy-cron-loop-watchdog.sh
+# every 5 min, which restarts the heavy-cron-loop if it died. Pure shell —
+# no OpenClaw cron / agent dispatch involved. Replaces the disabled
+# heavy-cron-loop-watchdog OpenClaw cron with a zero-saturation alternative.
+SUPERVISOR_SCRIPT="$OPENCLAW_WORKSPACE_DIR/scripts/loop-supervisor.sh"
+SUPERVISOR_LOG="$OPENCLAW_STATE_DIR/logs/loop-supervisor.stdout"
+if [ -x "$SUPERVISOR_SCRIPT" ]; then
+    mkdir -p "$(dirname "$SUPERVISOR_LOG")"
+    chown openclaw:openclaw "$SUPERVISOR_LOG" 2>/dev/null || true
+    if [ "$(id -u)" = "0" ]; then
+        su -s /bin/bash openclaw -c "nohup bash '$SUPERVISOR_SCRIPT' >> '$SUPERVISOR_LOG' 2>&1 &"
+    else
+        nohup bash "$SUPERVISOR_SCRIPT" >> "$SUPERVISOR_LOG" 2>&1 &
+        disown 2>/dev/null || true
+    fi
+    echo "Started loop-supervisor in background (logs: $SUPERVISOR_LOG)"
+else
+    echo "loop-supervisor.sh not found at $SUPERVISOR_SCRIPT (loop will not be auto-restarted on death)"
+fi
+
 # Log startup info
 echo ""
 echo "OpenClaw Railway Template"
