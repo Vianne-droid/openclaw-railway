@@ -1,0 +1,74 @@
+name: Auto-bump OpenClaw
+
+on:
+  schedule:
+    # Daily at 05:00 UTC
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read current pinned version
+        id: current
+        run: |
+          CURRENT=$(grep -oP 'OPENCLAW_VERSION=\K[^ ]+' Dockerfile | head -1)
+          echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "Current pinned version: ${CURRENT}"
+
+      - name: Fetch latest published openclaw version from npm
+        id: latest
+        run: |
+          LATEST=$(npm view openclaw@latest version)
+          echo "version=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "Latest npm version: ${LATEST}"
+
+      - name: Decide whether to bump
+        id: decide
+        run: |
+          if [ "${{ steps.current.outputs.version }}" = "${{ steps.latest.outputs.version }}" ]; then
+            echo "Up to date — no PR needed."
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Bump candidate: ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}"
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump to Dockerfile
+        if: steps.decide.outputs.should_bump == 'true'
+        run: |
+          sed -i "s|OPENCLAW_VERSION=${{ steps.current.outputs.version }}|OPENCLAW_VERSION=${{ steps.latest.outputs.version }}|" Dockerfile
+          echo "--- diff ---"
+          git diff Dockerfile
+
+      - name: Open or update pull request
+        if: steps.decide.outputs.should_bump == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto-bump/openclaw-${{ steps.latest.outputs.version }}
+          delete-branch: true
+          commit-message: 'chore: bump openclaw ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}'
+          title: 'chore: bump openclaw ${{ steps.current.outputs.version }} → ${{ steps.latest.outputs.version }}'
+          body: |
+            Automated version bump opened by `.github/workflows/bump-openclaw.yml`.
+
+            **Current pinned:** `${{ steps.current.outputs.version }}`
+            **Latest on npm:** `${{ steps.latest.outputs.version }}`
+
+            **Before merging:**
+            1. Skim the OpenClaw release notes for `${{ steps.latest.outputs.version }}`:
+               https://github.com/openclaw/openclaw/releases/tag/v${{ steps.latest.outputs.version }}
+            2. Look for breaking config-schema changes, plugin removals, or auth migrations.
+            3. If clean, merge → Railway redeploys with the new version automatically.
+
+            Merging this PR is the only action that ships the new version to production.
+          labels: |
+            auto-bump
+            openclaw-version
