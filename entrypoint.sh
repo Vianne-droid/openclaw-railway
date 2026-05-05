@@ -55,7 +55,26 @@ BAKED_MODULE_DIR="/usr/local/lib/node_modules/openclaw"
 BAKED_ENTRY="$BAKED_MODULE_DIR/dist/entry.js"
 SEED_MARKER="$NPM_PREFIX/.openclaw-seeded-version"
 
-mkdir -p "$NPM_PREFIX"
+mkdir -p "$NPM_PREFIX" "$NPM_PREFIX/lib/node_modules" "$NPM_BIN_DIR"
+
+# Ensure the persistent npm install is writable by the runtime user.
+# This repairs Railway volume state left behind by older root-run installs or
+# manual root npm upgrades. Without this, in-app upgrades can fail with EACCES
+# while unlinking files inside /data/.npm-global/lib/node_modules/openclaw or
+# npm temp dirs like .openclaw-*.
+if [ "$(id -u)" = "0" ]; then
+    shopt -s nullglob
+    npm_owned_paths=("$NPM_PREFIX" "$NPM_PREFIX/lib" "$NPM_PREFIX/lib/node_modules" "$NPM_BIN_DIR")
+    [ -e "$NPM_MODULE_DIR" ] && npm_owned_paths+=("$NPM_MODULE_DIR")
+    for p in "$NPM_PREFIX/lib/node_modules"/.openclaw-*; do
+        npm_owned_paths+=("$p")
+    done
+    for p in "$NPM_BIN_DIR"/openclaw "$NPM_BIN_DIR"/.openclaw-*; do
+        [ -e "$p" ] && npm_owned_paths+=("$p")
+    done
+    chown -R openclaw:openclaw "${npm_owned_paths[@]}" 2>/dev/null || true
+    shopt -u nullglob
+fi
 
 # Fix ownership of newly created directories
 if [ "$(id -u)" = "0" ]; then
