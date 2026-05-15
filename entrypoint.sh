@@ -198,6 +198,38 @@ ln -sfn /data/.npm /home/openclaw/.npm
 chown -h openclaw:openclaw /home/openclaw/.openclaw /home/openclaw/.local /home/openclaw/.npm
 chown openclaw:openclaw /data/.local /data/.npm
 
+# Bootstrap external plugins required by the current OpenClaw release.
+# In 2026.5.x, several runtimes/harnesses (codex app-server, whatsapp channel,
+# brave search, acpx) were extracted out of the core npm package into separate
+# @openclaw/* plugins. The Dockerfile only installs openclaw itself, so on a
+# fresh /data volume — or after a major core upgrade — required plugins can be
+# missing. Symptom: "Requested agent harness 'codex' is not registered" with
+# permanent fallback off the configured primary model.
+#
+# This block is idempotent: it only installs plugins whose package.json is not
+# already present under $OPENCLAW_STATE_DIR/npm/node_modules. It's non-fatal so
+# the gateway still starts even if install fails (e.g. offline build).
+PLUGINS_HOME="$OPENCLAW_STATE_DIR/npm/node_modules"
+REQUIRED_PLUGINS=(@openclaw/codex @openclaw/whatsapp @openclaw/brave-plugin @openclaw/acpx)
+missing_plugins=()
+for pkg in "${REQUIRED_PLUGINS[@]}"; do
+    if [ ! -f "$PLUGINS_HOME/$pkg/package.json" ]; then
+        missing_plugins+=("$pkg")
+    fi
+done
+if [ ${#missing_plugins[@]} -gt 0 ]; then
+    echo "Bootstrapping missing external plugins: ${missing_plugins[*]}"
+    if [ "$(id -u)" = "0" ]; then
+        su -s /bin/bash openclaw -c "openclaw plugins install ${missing_plugins[*]}" \
+            || echo "WARNING: external plugin bootstrap failed; gateway will start without them" >&2
+    else
+        openclaw plugins install "${missing_plugins[@]}" \
+            || echo "WARNING: external plugin bootstrap failed; gateway will start without them" >&2
+    fi
+else
+    echo "External plugins present: ${REQUIRED_PLUGINS[*]}"
+fi
+
 # Sync pre-bundled skills into the skills directory
 # Always overwrites bundled skill files to ensure Railway-aware instructions are current
 # (e.g. replaces upstream SKILL.md that references localhost with our $SEARXNG_URL version)
