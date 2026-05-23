@@ -24,7 +24,7 @@ import { validate, migrateConfig, getAllSchemas } from './schema/index.js';
 
 import healthRouter, { setGatewayReady } from './health.js';
 import { createAuthMiddleware } from './auth.js';
-import { startGateway, stopGateway, isGatewayRunning, getGatewayInfo, getGatewayToken, runCmd, runExec, deleteConfig, getRecentLogs, getGatewayUptime } from './gateway.js';
+import { startGateway, stopGateway, isGatewayRunning, getGatewayInfo, getGatewayToken, runCmd, runExec, deleteConfig, getRecentLogs, getGatewayUptime, sanitizeOpenClawConfig } from './gateway.js';
 import { gatewayRPC } from './gateway-rpc.js';
 import { createProxy } from './proxy.js';
 import { createTerminalServer, closeAllSessions } from './terminal.js';
@@ -617,6 +617,7 @@ app.post('/onboard/api/run', authMiddleware, async (req, res) => {
               }
             }
           }
+          sanitizeOpenClawConfig(config);
           writeFileSync(configFile, JSON.stringify(config, null, 2));
         }
       } catch (e) {
