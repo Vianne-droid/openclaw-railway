@@ -1276,22 +1276,31 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
         <div id="device-pairing">
           <div class="pair-card">
             <h2 class="success-heading" style="margin-top:0">Pair your ChatGPT / Codex account</h2>
-            <div class="pair-step">
-              <span class="pair-num">1</span>
-              <span>Open the OpenAI pairing page:</span>
-              <a id="pair-url" href="#" target="_blank" rel="noopener" class="btn btn-primary">Open auth page</a>
+            <!-- Live pairing UI (steps + terminal). Hidden once pairing is approved so the
+                 raw onboard output isn't shown — replaced by the processing spinner below. -->
+            <div id="pair-live">
+              <div class="pair-step">
+                <span class="pair-num">1</span>
+                <span>Open the OpenAI pairing page:</span>
+                <a id="pair-url" href="#" target="_blank" rel="noopener" class="btn btn-primary">Open auth page</a>
+              </div>
+              <div class="pair-step">
+                <span class="pair-num">2</span>
+                <span>Enter this code, then sign in with your ChatGPT/Codex subscription:</span>
+                <span id="pair-code" class="pair-code waiting">starting…</span>
+              </div>
+              <div class="pair-step">
+                <span class="pair-num">3</span>
+                <span>Keep this tab open — it finishes automatically once you approve.</span>
+              </div>
+              <div id="device-term"></div>
             </div>
-            <div class="pair-step">
-              <span class="pair-num">2</span>
-              <span>Enter this code, then sign in with your ChatGPT/Codex subscription:</span>
-              <span id="pair-code" class="pair-code waiting">starting…</span>
-            </div>
-            <div class="pair-step">
-              <span class="pair-num">3</span>
-              <span>Keep this tab open — it finishes automatically once you approve.</span>
+            <!-- Processing state shown after pairing is approved, while channels/skills/model
+                 are applied and the gateway restarts. -->
+            <div id="pair-processing" style="display:none;text-align:center;padding:8px 0">
+              <div class="deploy-spinner" id="pair-spinner"></div>
             </div>
             <div id="pair-status" class="pair-status">Connecting to the pairing terminal…</div>
-            <div id="device-term"></div>
           </div>
           <div class="success-links" id="pair-done-links" style="display:none">
             <a href="/lite?password=${encodeURIComponent(password)}" class="btn btn-primary">Open Lite Panel</a>
@@ -2532,12 +2541,36 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
       }
 
       // ========== Deploy ==========
+      // Build the channels payload from the enabled channels + their field inputs.
+      function collectChannelsPayload() {
+        var channelsPayload = [];
+        channelGroups.forEach(function(ch) {
+          if (!enabledChannels[ch.name]) return;
+          var fields = {};
+          if (ch.fields) {
+            ch.fields.forEach(function(f) {
+              var inp = document.getElementById('channel-field-' + ch.name + '-' + f.id);
+              if (inp && inp.value.trim()) fields[f.id] = inp.value.trim();
+            });
+          }
+          channelsPayload.push({ name: ch.name, fields: fields });
+        });
+        return channelsPayload;
+      }
+
+      // Channels/skills the user configured in steps 3-4, captured at deploy time so the
+      // device-code finalize step can apply them after pairing (the pairing PTY runs with
+      // --skip-channels --skip-skills, so it never re-prompts for them).
+      var pendingDeviceConfig = { channels: [], skills: [] };
+
       window.deploy = function() {
         wizardLocked = true;
 
         // Interactive device-code pairing (ChatGPT/Codex) can't run through the
         // non-interactive /onboard/api/run endpoint — drive it via the PTY terminal instead.
+        // Capture the wizard's channels/skills first so they can be applied after pairing.
         if (isDeviceCodeChoice()) {
+          pendingDeviceConfig = { channels: collectChannelsPayload(), skills: selectedSkills };
           runDeviceCodePairing();
           return;
         }
@@ -2567,18 +2600,7 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
         }
 
         // Build channels array from enabled channels
-        var channelsPayload = [];
-        channelGroups.forEach(function(ch) {
-          if (!enabledChannels[ch.name]) return;
-          var fields = {};
-          if (ch.fields) {
-            ch.fields.forEach(function(f) {
-              var inp = document.getElementById('channel-field-' + ch.name + '-' + f.id);
-              if (inp && inp.value.trim()) fields[f.id] = inp.value.trim();
-            });
-          }
-          channelsPayload.push({ name: ch.name, fields: fields });
-        });
+        var channelsPayload = collectChannelsPayload();
 
         var payload = {
           authChoice: selectedAuthChoice,
@@ -2675,6 +2697,11 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
         if (doneLinks) doneLinks.style.display = 'none';
         var retry = document.getElementById('pair-retry-btn');
         if (retry) retry.classList.add('hidden');
+        // Reset to the live pairing view (in case this is a retry after processing started).
+        var live = document.getElementById('pair-live');
+        if (live) live.style.display = 'block';
+        var proc = document.getElementById('pair-processing');
+        if (proc) proc.style.display = 'none';
 
         pairBuf = ''; pairUrlFound = false; pairCodeFound = false;
         var codeEl = document.getElementById('pair-code');
@@ -2739,10 +2766,40 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
       };
 
       function finishDevicePairing() {
-        setPairStatus('Pairing approved — applying configuration…', 'success');
-        // Point the primary model at the openai-codex provider, then restart the gateway so
+        // Pairing is done — hide the raw onboard terminal/steps and show a clean processing
+        // spinner so the user isn't shown the trailing onboard output (Control UI / workspace
+        // backup / security notes). We reveal the Open Lite / Dashboard buttons when ready.
+        var live = document.getElementById('pair-live');
+        if (live) live.style.display = 'none';
+        var proc = document.getElementById('pair-processing');
+        if (proc) proc.style.display = 'block';
+        setPairStatus('Pairing approved — getting things ready…', 'success');
+
+        // 1) Apply the channels (step 3) + skills (step 4) the wizard captured. The pairing
+        //    PTY ran with --skip-channels --skip-skills, so they weren't configured there;
+        //    the server's device-code branch applies them to the paired config without
+        //    re-running auth. Skip the call when nothing was selected.
+        var hasPending = (pendingDeviceConfig.channels && pendingDeviceConfig.channels.length) ||
+                         (pendingDeviceConfig.skills && pendingDeviceConfig.skills.length);
+        var applyConfig = hasPending
+          ? (setPairStatus('Pairing approved — applying your channels & skills…', 'success'),
+             fetch('/onboard/api/run?password=' + encodeURIComponent(password), {
+               method: 'POST', headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({
+                 authChoice: selectedAuthChoice,
+                 channels: pendingDeviceConfig.channels,
+                 skills: pendingDeviceConfig.skills
+               })
+             }).then(function(r) { return r.json(); }).catch(function() { return {}; }))
+          : Promise.resolve({});
+
+        // 2) Point the primary model at the openai-codex provider, then restart the gateway so
         // it loads the new openai-codex OAuth profile.
-        fetch('/lite/api/config?password=' + encodeURIComponent(password))
+        applyConfig
+          .then(function() {
+            setPairStatus('Pairing approved — applying configuration…', 'success');
+            return fetch('/lite/api/config?password=' + encodeURIComponent(password));
+          })
           .then(function(r) { return r.json(); })
           .then(function(cfg) {
             cfg = cfg || {};
@@ -2772,7 +2829,9 @@ export function getSetupPageHTML({ isConfigured, gatewayInfo, password, stateDir
           })
           .catch(function() {})
           .then(function() {
-            setPairStatus('Done! Codex is connected and the gateway has restarted.', 'success');
+            var procDone = document.getElementById('pair-processing');
+            if (procDone) procDone.style.display = 'none';
+            setPairStatus('Done! Codex is connected, your channels are configured, and the gateway has restarted.', 'success');
             var dl = document.getElementById('pair-done-links');
             if (dl) dl.style.display = 'flex';
             wizardLocked = false;
