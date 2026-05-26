@@ -13,6 +13,23 @@ import { parse as parseCookie } from './cookie-parser.js';
 // Track active terminal sessions
 const activeSessions = new Map();
 
+// Allowlist of commands the /onboard/ws terminal may run, keyed by the `cmd` query param.
+// SECURITY: values are fixed arg arrays — the client only selects a key, never the args,
+// so arbitrary commands can never be injected via the query string.
+const ONBOARD_COMMANDS = {
+  // Default: the full interactive onboarding wizard.
+  default: ['onboard'],
+  // ChatGPT/Codex device-code pairing. Interactive-only (refuses --non-interactive);
+  // prints a URL + code the user approves in a browser while the container polls.
+  // The PTY must ONLY pair the Codex subscription and then finish — it must not run any of
+  // quickstart's other interactive steps. The web wizard already handles channels (step 3)
+  // and skills (step 4), applied after pairing via /onboard/api/run; it has no search/hook/UI
+  // steps. So skip all of them: --skip-channels --skip-skills --skip-search --skip-hooks
+  // --skip-ui. (--skip-bootstrap is intentionally NOT set so the default agent workspace is
+  // still created.)
+  'codex-device': ['onboard', '--flow', 'quickstart', '--accept-risk', '--auth-choice', 'openai-codex-device-code', '--skip-channels', '--skip-skills', '--skip-search', '--skip-hooks', '--skip-ui']
+};
+
 /**
  * Write data to PTY one character at a time to simulate keyboard input.
  * This prevents CLI rendering issues (e.g. @clack/prompts) when pasting
@@ -92,10 +109,20 @@ export function createTerminalServer(httpServer, password) {
     const stateDir = process.env.OPENCLAW_STATE_DIR || '/data/.openclaw';
     const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || '/data/workspace';
 
-    // Determine command based on WebSocket path
-    const isUITerminal = parseUrl(req.url, true).pathname === '/lite/ws';
-    const command = isUITerminal ? '/bin/bash' : 'openclaw';
-    const args = isUITerminal ? [] : ['onboard'];
+    // Determine command based on WebSocket path and (for /onboard/ws) an allowlisted cmd.
+    const parsedUrl = parseUrl(req.url, true);
+    const isUITerminal = parsedUrl.pathname === '/lite/ws';
+    let command;
+    let args;
+    if (isUITerminal) {
+      command = '/bin/bash';
+      args = [];
+    } else {
+      // /onboard/ws: fixed command set only — never interpolate user input into spawn.
+      // Each cmd maps to a hardcoded openclaw arg list.
+      command = 'openclaw';
+      args = ONBOARD_COMMANDS[parsedUrl.query.cmd] || ONBOARD_COMMANDS.default;
+    }
 
     // Spawn process in a PTY
     const ptyProcess = pty.spawn(command, args, {

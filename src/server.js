@@ -20,11 +20,12 @@ import JSZip from 'jszip';
 import archiver from 'archiver';
 import { siAnthropic, siGooglegemini, siOpenrouter, siVercel, siCloudflare, siOllama } from 'simple-icons';
 import { CHANNEL_GROUPS, buildChannelConfig, getChannelIcon, getRequiredPlugin } from './channels.js';
+import { AUTH_GROUPS, AUTH_OPTION_MAP } from './auth-groups.js';
 import { validate, migrateConfig, getAllSchemas } from './schema/index.js';
 
 import healthRouter, { setGatewayReady } from './health.js';
 import { createAuthMiddleware } from './auth.js';
-import { startGateway, stopGateway, isGatewayRunning, getGatewayInfo, getGatewayToken, runCmd, runExec, deleteConfig, getRecentLogs, getGatewayUptime } from './gateway.js';
+import { startGateway, stopGateway, isGatewayRunning, getGatewayInfo, getGatewayToken, runCmd, runExec, deleteConfig, getRecentLogs, getGatewayUptime, sanitizeOpenClawConfig } from './gateway.js';
 import { gatewayRPC } from './gateway-rpc.js';
 import { createProxy } from './proxy.js';
 import { createTerminalServer, closeAllSessions } from './terminal.js';
@@ -88,201 +89,12 @@ function getProviderIcon(name) {
   return null;
 }
 
-// Auth provider groups for the simple mode form
-const AUTH_GROUPS = [
-  // === Popular ===
-  {
-    provider: 'Anthropic',
-    category: 'popular',
-    description: 'Claude Opus, Sonnet, Haiku',
-    emoji: '\u{1F9E0}',
-    options: [
-      { label: 'API Key', value: 'anthropic-api-key', flag: '--anthropic-api-key' },
-      { label: 'Setup Token', value: 'setup-token',
-        flag: ['--auth-choice', 'token', '--token-provider', 'anthropic'],
-        secretFlag: '--token' }
-    ]
-  },
-  {
-    provider: 'OpenAI',
-    category: 'popular',
-    description: 'GPT-4o, o1, o3, DALL-E',
-    emoji: '\u{1F916}',
-    options: [
-      { label: 'API Key', value: 'openai-api-key', flag: '--openai-api-key' },
-      { label: 'Codex Subscription', value: 'openai-codex',
-        flag: ['--auth-choice', 'openai-codex'],
-        noSecret: true }
-    ]
-  },
-  {
-    provider: 'Google / Gemini',
-    category: 'popular',
-    description: 'Gemini Pro, Flash, Ultra',
-    emoji: '\u{2728}',
-    options: [
-      { label: 'API Key', value: 'gemini-api-key', flag: '--gemini-api-key' }
-    ]
-  },
-  {
-    provider: 'OpenRouter',
-    category: 'popular',
-    description: 'Multi-provider gateway',
-    emoji: '\u{1F310}',
-    options: [
-      { label: 'API Key', value: 'openrouter-api-key', flag: '--openrouter-api-key' }
-    ]
-  },
-  // === More Providers ===
-  {
-    provider: 'MiniMax',
-    category: 'more',
-    description: 'MiniMax M2.1 models',
-    emoji: '\u{1F4A1}',
-    options: [
-      { label: 'API Key', value: 'minimax-api-key',
-        flag: ['--auth-choice', 'minimax-api-key'],
-        secretFlag: '--minimax-api-key' },
-      { label: 'Coding Plan (OAuth)', value: 'minimax-portal',
-        flag: ['--auth-choice', 'minimax-portal'],
-        noSecret: true }
-    ]
-  },
-  {
-    provider: 'Venice AI',
-    category: 'more',
-    description: 'Privacy-focused AI inference',
-    emoji: '\u{1F3AD}',
-    options: [
-      { label: 'API Key', value: 'venice-api-key',
-        flag: ['--auth-choice', 'venice-api-key'],
-        secretFlag: '--venice-api-key' }
-    ]
-  },
-  {
-    provider: 'Together AI',
-    category: 'more',
-    description: 'Open-source model hosting',
-    emoji: '\u{1F91D}',
-    options: [
-      { label: 'API Key', value: 'together-api-key',
-        flag: ['--auth-choice', 'together-api-key'],
-        secretFlag: '--together-api-key' }
-    ]
-  },
-  {
-    provider: 'Vercel AI Gateway',
-    category: 'more',
-    description: 'Edge AI inference gateway',
-    emoji: '\u25B2',
-    options: [
-      { label: 'API Key', value: 'ai-gateway-api-key',
-        flag: ['--auth-choice', 'ai-gateway-api-key'],
-        secretFlag: '--ai-gateway-api-key' }
-    ]
-  },
-  {
-    provider: 'Moonshot AI',
-    category: 'more',
-    description: 'Kimi large language models',
-    emoji: '\u{1F319}',
-    options: [
-      { label: 'API Key', value: 'moonshot-api-key',
-        flag: ['--auth-choice', 'moonshot-api-key'],
-        secretFlag: '--moonshot-api-key' }
-    ]
-  },
-  {
-    provider: 'Kimi Coding',
-    category: 'more',
-    description: 'AI-powered code assistant',
-    emoji: '\u{1F4BB}',
-    options: [
-      { label: 'API Key', value: 'kimi-code-api-key',
-        flag: ['--auth-choice', 'kimi-code-api-key'],
-        secretFlag: '--kimi-code-api-key' }
-    ]
-  },
-  {
-    provider: 'Z.AI (GLM)',
-    category: 'more',
-    description: 'Zhipu GLM series models',
-    emoji: '\u{1F4A0}',
-    options: [
-      { label: 'API Key', value: 'zai-api-key',
-        flag: ['--auth-choice', 'zai-api-key'],
-        secretFlag: '--zai-api-key' }
-    ]
-  },
-  {
-    provider: 'Cloudflare AI Gateway',
-    category: 'more',
-    description: 'Edge AI inference gateway',
-    emoji: '\u2601\uFE0F',
-    options: [
-      { label: 'API Key + IDs', value: 'cloudflare-ai-gateway-api-key',
-        flag: ['--auth-choice', 'cloudflare-ai-gateway-api-key'],
-        secretFlag: '--cloudflare-ai-gateway-api-key',
-        extraFields: [
-          { id: 'cf-account-id', label: 'Account ID', flag: '--cloudflare-ai-gateway-account-id', placeholder: 'Cloudflare account ID' },
-          { id: 'cf-gateway-id', label: 'Gateway ID', flag: '--cloudflare-ai-gateway-gateway-id', placeholder: 'AI Gateway ID' }
-        ]
-      }
-    ]
-  },
-  {
-    provider: 'OpenCode Zen',
-    category: 'more',
-    description: 'Claude, GPT and more via Zen',
-    emoji: '\u{26A1}',
-    options: [
-      { label: 'API Key', value: 'opencode-zen-api-key', flag: '--opencode-zen-api-key' }
-    ]
-  },
-  {
-    provider: 'Ollama',
-    category: 'more',
-    description: 'Run models locally',
-    emoji: '\u{1F999}',
-    options: [
-      { label: 'No key needed', value: 'ollama', flag: null }
-    ]
-  },
-  {
-    provider: 'Custom Provider',
-    category: 'more',
-    description: 'Any OpenAI-compatible API',
-    emoji: '\u{1F527}',
-    options: [
-      {
-        label: 'API Key + Base URL',
-        value: 'custom-api-key',
-        flag: ['--auth-choice', 'custom-api-key', '--custom-compatibility', 'openai'],
-        secretFlag: '--custom-api-key',
-        secretOptional: true,
-        extraFields: [
-          { id: 'custom-base-url', label: 'Base URL', flag: '--custom-base-url', placeholder: 'https://api.example.com/v1' },
-          { id: 'custom-model-id', label: 'Model ID', flag: '--custom-model-id', placeholder: 'openai/gpt-4o', hint: 'For Plano/litellm, use provider/model format (e.g. openai/gpt-4o, anthropic/claude-sonnet-4-5)' },
-          { id: 'custom-provider-name', label: 'Provider Name', placeholder: 'e.g. Plano, LocalAI', optional: true, noFlag: true },
-          { id: 'custom-context-window', label: 'Context Window', placeholder: '200000', optional: true, noFlag: true, type: 'number' }
-        ]
-      }
-    ]
-  }
-];
-
-// Enrich each provider group with SVG icon data
+// Auth provider groups for the simple mode form live in ./auth-groups.js.
+// Enrich each imported provider group with SVG icon data.
 for (const group of AUTH_GROUPS) {
   group.icon = getProviderIcon(group.provider);
 }
 
-// Flat lookup: auth choice value -> full option object (flag, secretFlag, etc.)
-const AUTH_OPTION_MAP = {};
-for (const group of AUTH_GROUPS) {
-  for (const opt of group.options) {
-    AUTH_OPTION_MAP[opt.value] = opt;
-  }
-}
 
 /**
  * Create an auto-backup of the state directory to a temp file
@@ -530,61 +342,78 @@ app.post('/onboard/api/run', authMiddleware, async (req, res) => {
     const { authChoice, authSecret, extraFieldValues, flow, channels: channelPayload, skills } = req.body;
     const logs = [];
 
-    // Build onboard command args
-    const onboardArgs = ['--non-interactive', '--accept-risk', '--json'];
-
-    if (flow) {
-      onboardArgs.push('--flow', flow);
-    }
-
     const opt = AUTH_OPTION_MAP[authChoice];
-    const flag = opt?.flag;
-    if (flag) {
-      if (Array.isArray(flag)) {
-        onboardArgs.push(...flag);
-        // For secretOptional providers (e.g. Plano), fall back to 'nokey' so the
-        // flag is always passed and onboard doesn't prompt interactively.
-        const secretVal = authSecret || (opt.secretOptional ? 'nokey' : null);
-        if (opt.secretFlag && secretVal) {
-          onboardArgs.push(opt.secretFlag, secretVal);
-        }
-      } else if (authSecret) {
-        onboardArgs.push(flag, authSecret);
-      }
-    }
+    const isDeviceCode = !!opt?.deviceCode;
+    const configFile = join(OPENCLAW_STATE_DIR, 'openclaw.json');
 
-    // Handle extra fields (e.g., Cloudflare account/gateway IDs)
-    if (opt?.extraFields && extraFieldValues) {
-      for (const field of opt.extraFields) {
-        if (field.noFlag) continue;
-        const val = extraFieldValues[field.id];
-        if (val && field.flag) {
-          onboardArgs.push(field.flag, val);
-        }
-      }
-    }
-
-    // Run onboard
-    logs.push('> openclaw onboard ' + onboardArgs.map(a => a.startsWith('--') ? a : '***').join(' '));
-    const onboardResult = await runCmd('onboard', onboardArgs);
-    if (onboardResult.stdout) logs.push(onboardResult.stdout.trim());
-    if (onboardResult.stderr) logs.push(onboardResult.stderr.trim());
-
-    if (onboardResult.code !== 0) {
-      // onboard always tries to verify the gateway connection after writing config.
-      // Since no gateway is running yet (we start it below), the verification fails
-      // and onboard exits non-zero. Check if config was actually written — if so,
-      // treat the gateway verification failure as non-fatal and continue.
-      const configFile = join(OPENCLAW_STATE_DIR, 'openclaw.json');
+    if (isDeviceCode) {
+      // Device-code auth (e.g. ChatGPT/Codex pairing) is interactive-only and runs in the PTY
+      // terminal (/onboard/ws?cmd=codex-device), which pairs with --skip-channels --skip-skills.
+      // By the time the front-end calls this endpoint, pairing has already written the base
+      // config + auth profile. We must NOT re-run onboard here (it would refuse
+      // --non-interactive for a device-code choice, and could clobber the paired auth) — we
+      // only apply the wizard's channels & skills to the existing config below.
       if (!existsSync(configFile)) {
-        return res.json({ success: false, logs });
+        return res.json({
+          success: false,
+          logs: ['Device pairing has not completed yet — finish the pairing terminal first, then channels/skills can be applied.']
+        });
       }
-      logs.push('(Gateway verification skipped — gateway will be started next)');
+      logs.push('Device pairing detected — applying channels & skills to the paired config (no re-auth).');
+    } else {
+      // Build onboard command args
+      const onboardArgs = ['--non-interactive', '--accept-risk', '--json'];
+
+      if (flow) {
+        onboardArgs.push('--flow', flow);
+      }
+
+      const flag = opt?.flag;
+      if (flag) {
+        if (Array.isArray(flag)) {
+          onboardArgs.push(...flag);
+          // For secretOptional providers (e.g. Plano), fall back to 'nokey' so the
+          // flag is always passed and onboard doesn't prompt interactively.
+          const secretVal = authSecret || (opt.secretOptional ? 'nokey' : null);
+          if (opt.secretFlag && secretVal) {
+            onboardArgs.push(opt.secretFlag, secretVal);
+          }
+        } else if (authSecret) {
+          onboardArgs.push(flag, authSecret);
+        }
+      }
+
+      // Handle extra fields (e.g., Cloudflare account/gateway IDs)
+      if (opt?.extraFields && extraFieldValues) {
+        for (const field of opt.extraFields) {
+          if (field.noFlag) continue;
+          const val = extraFieldValues[field.id];
+          if (val && field.flag) {
+            onboardArgs.push(field.flag, val);
+          }
+        }
+      }
+
+      // Run onboard
+      logs.push('> openclaw onboard ' + onboardArgs.map(a => a.startsWith('--') ? a : '***').join(' '));
+      const onboardResult = await runCmd('onboard', onboardArgs);
+      if (onboardResult.stdout) logs.push(onboardResult.stdout.trim());
+      if (onboardResult.stderr) logs.push(onboardResult.stderr.trim());
+
+      if (onboardResult.code !== 0) {
+        // onboard always tries to verify the gateway connection after writing config.
+        // Since no gateway is running yet (we start it below), the verification fails
+        // and onboard exits non-zero. Check if config was actually written — if so,
+        // treat the gateway verification failure as non-fatal and continue.
+        if (!existsSync(configFile)) {
+          return res.json({ success: false, logs });
+        }
+        logs.push('(Gateway verification skipped — gateway will be started next)');
+      }
     }
 
     // Patch custom provider fields that the CLI doesn't handle (provider name, context window)
     // OpenClaw stores providers at config.models.providers.<key> with models as array of objects
-    const configFile = join(OPENCLAW_STATE_DIR, 'openclaw.json');
     if (existsSync(configFile) && extraFieldValues) {
       try {
         const config = JSON.parse(readFileSync(configFile, 'utf8'));
@@ -617,6 +446,7 @@ app.post('/onboard/api/run', authMiddleware, async (req, res) => {
               }
             }
           }
+          sanitizeOpenClawConfig(config);
           writeFileSync(configFile, JSON.stringify(config, null, 2));
         }
       } catch (e) {

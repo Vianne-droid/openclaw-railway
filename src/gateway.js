@@ -487,27 +487,21 @@ export async function startGateway() {
     console.log('Wrote default TOOLS.md with environment tool notes');
   }
 
-  // Ensure custom provider models have adequate contextWindow.
-  // OpenClaw stores context windows per-model at config.models.providers.<key>.models[].contextWindow
-  // When the CLI creates a custom provider with an unknown model, contextWindow defaults to 4096 —
-  // below the 16000 minimum for agent operation.
-  const providers = config.models?.providers;
-  if (providers && typeof providers === 'object') {
-    for (const [key, providerEntry] of Object.entries(providers)) {
-      if (!providerEntry || !Array.isArray(providerEntry.models)) continue;
-      for (const model of providerEntry.models) {
-        if (model && typeof model === 'object' && model.id) {
-          const ctx = typeof model.contextWindow === 'number' ? model.contextWindow : 0;
-          if (!ctx || ctx < 32000) {
-            model.contextWindow = 200000;
-            console.log(`Auto-set contextWindow=200000 for model "${model.id}" in provider "${key}"`);
-          }
-        }
-      }
-    }
-  }
+  sanitizeOpenClawConfig(config);
 
   writeFileSync(configFile, JSON.stringify(config, null, 2));
+
+  const validation = await validateOpenClawConfigFile(configFile);
+  if (!validation.valid) {
+    for (const issue of validation.issues || []) {
+      console.error(`Config validation failed: ${issue.path}: ${issue.message}`);
+    }
+    const summary = (validation.issues || [])
+      .map((issue) => `${issue.path}: ${issue.message}`)
+      .join('; ');
+    isStarting = false;
+    throw new Error(`Invalid config at ${configFile}${summary ? `: ${summary}` : ''}`);
+  }
 
   // Start the gateway
   // Using: openclaw gateway --port PORT --verbose
@@ -664,6 +658,96 @@ async function runOnboard() {
       }
     });
   });
+}
+
+/**
+ * Sanitize config for OpenClaw schema compatibility (especially after version upgrades).
+ * Mutates config in place.
+ * @param {Object} config
+ */
+export function sanitizeOpenClawConfig(config) {
+  const discord = config.channels?.discord;
+  if (discord && typeof discord === 'object') {
+    const streaming = discord.streaming;
+    const legacyMode = discord.streamMode;
+    const validModes = new Set(['off', 'partial', 'block', 'progress']);
+
+    if (streaming === null) {
+      delete discord.streaming;
+    } else if (streaming === undefined && typeof legacyMode === 'string' && validModes.has(legacyMode)) {
+      discord.streaming = { mode: legacyMode };
+      delete discord.streamMode;
+      console.log(`Migrated channels.discord.streamMode -> streaming (${legacyMode})`);
+    } else if (typeof streaming === 'boolean') {
+      discord.streaming = streaming ? { mode: 'progress' } : { mode: 'off' };
+      console.log(`Migrated channels.discord.streaming boolean -> object (${discord.streaming.mode})`);
+    } else if (typeof streaming === 'string' && validModes.has(streaming)) {
+      discord.streaming = { mode: streaming };
+      console.log(`Migrated channels.discord.streaming string -> object (${streaming})`);
+    } else if (streaming != null && typeof streaming !== 'object') {
+      discord.streaming = { mode: 'progress' };
+      console.log('Reset invalid channels.discord.streaming value to { mode: "progress" }');
+    } else if (!streaming && typeof legacyMode === 'string' && validModes.has(legacyMode)) {
+      discord.streaming = { mode: legacyMode };
+      delete discord.streamMode;
+      console.log(`Migrated channels.discord.streamMode -> streaming (${legacyMode})`);
+    }
+  }
+
+  const providers = config.models?.providers;
+  if (providers && typeof providers === 'object') {
+    for (const [key, providerEntry] of Object.entries(providers)) {
+      if (!providerEntry || !Array.isArray(providerEntry.models)) continue;
+      for (const model of providerEntry.models) {
+        if (!model || typeof model !== 'object' || !model.id) continue;
+        // v2026.5+ requires models[].name; onboard/CLI often writes id only.
+        if (!model.name) {
+          model.name = model.id;
+          console.log(`Auto-set name="${model.id}" for model in provider "${key}"`);
+        }
+        const ctx = typeof model.contextWindow === 'number' ? model.contextWindow : 0;
+        if (!ctx || ctx < 32000) {
+          model.contextWindow = 200000;
+          console.log(`Auto-set contextWindow=200000 for model "${model.id}" in provider "${key}"`);
+        }
+      }
+    }
+  }
+  return config;
+}
+
+/**
+ * Validate openclaw.json using the installed OpenClaw CLI schema.
+ * @param {string} configFile
+ * @returns {Promise<{valid: boolean, path?: string, issues?: Array<{path: string, message: string}>}>}
+ */
+export async function validateOpenClawConfigFile(configFile) {
+  const result = await runCmd('config', ['validate', '--json']);
+  const raw = (result.stdout || '').trim();
+  const err = (result.stderr || '').trim();
+
+  // Mock CLI and older OpenClaw versions lack `config validate`.
+  if (!raw && /Unknown config subcommand:\s*validate/i.test(err)) {
+    console.warn('Skipping openclaw config validate (command not available in this CLI build)');
+    return { valid: true, path: configFile, skipped: true };
+  }
+
+  if (!raw) {
+    return {
+      valid: false,
+      path: configFile,
+      issues: [{ path: '<unknown>', message: err || 'config validate produced no output' }]
+    };
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      valid: false,
+      path: configFile,
+      issues: [{ path: '<unknown>', message: raw }]
+    };
+  }
 }
 
 /**
