@@ -81,6 +81,23 @@ if [ "$(id -u)" = "0" ]; then
     find /data -maxdepth 2 -not -path "*/node_modules/*" -exec chown openclaw:openclaw {} + 2>/dev/null || true
 fi
 
+# OpenClaw 2026.5.26 validates plugin code ownership before loading plugins.
+# Runtime state stays owned by openclaw, but trusted plugin code must be
+# root-owned or it is blocked as suspicious when loaded from the persistent
+# Railway volume.
+if [ "$(id -u)" = "0" ]; then
+    for p in \
+        "$OPENCLAW_STATE_DIR/extensions/claude-mem" \
+        "$OPENCLAW_STATE_DIR/extensions/conversation-logger" \
+        "$OPENCLAW_STATE_DIR/extensions/gati-sje-direct"
+    do
+        if [ -e "$p" ]; then
+            chown -R root:root "$p" 2>/dev/null || true
+            chmod -R go-w "$p" 2>/dev/null || true
+        fi
+    done
+fi
+
 # Seed the persistent npm prefix from the Docker-baked install on first boot.
 # If the prefix was auto-seeded previously and still matches that seeded
 # version, refresh it on redeploys so new image versions become active.
@@ -228,6 +245,16 @@ if [ ${#missing_plugins[@]} -gt 0 ]; then
     fi
 else
     echo "External plugins present: ${REQUIRED_PLUGINS[*]}"
+fi
+
+if [ "$(id -u)" = "0" ]; then
+    for pkg in "${REQUIRED_PLUGINS[@]}"; do
+        p="$PLUGINS_HOME/$pkg"
+        if [ -e "$p" ]; then
+            chown -R root:root "$p" 2>/dev/null || true
+            chmod -R go-w "$p" 2>/dev/null || true
+        fi
+    done
 fi
 
 # Sync pre-bundled skills into the skills directory
