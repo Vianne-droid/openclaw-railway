@@ -32,6 +32,7 @@ ARG OPENCLAW_VERSION=2026.5.26
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
 ARG SIGNAL_CLI_VERSION=0.13.24
+ENV OPENCLAW_IMAGE_VERSION=${OPENCLAW_VERSION}
 
 # Install base runtime dependencies
 # - tini: proper PID 1 handling for signal forwarding
@@ -75,7 +76,7 @@ RUN groupadd --system --gid 1001 openclaw && \
 # Create openclaw CLI wrapper that ALWAYS runs first (PATH-priority via /opt/openclaw-bin).
 # Injects OPENCLAW_GATEWAY_TOKEN so the CLI can authenticate with the gateway in ANY
 # shell context (docker exec, Railway shell, web terminal, scripts).
-# Delegates to the npm-upgraded version if available, otherwise the base npm install.
+# Delegates to the npm-upgraded version only when it is not older than the baked image.
 RUN mkdir -p /opt/openclaw-bin && \
     printf '#!/bin/bash\n\
 if [ -z "$OPENCLAW_GATEWAY_TOKEN" ] && [ -f "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token" ]; then\n\
@@ -86,10 +87,16 @@ if [ -z "$OPENCLAW_BUNDLED_SKILLS_DIR" ]; then\n\
 fi\n\
 NPM_ENTRY="${NPM_CONFIG_PREFIX:-/data/.npm-global}/lib/node_modules/openclaw/dist/entry.js"\n\
 NPM_PACKAGE_JSON="${NPM_CONFIG_PREFIX:-/data/.npm-global}/lib/node_modules/openclaw/package.json"\n\
+BASE_ENTRY="/usr/local/lib/node_modules/openclaw/dist/entry.js"\n\
+BASE_PACKAGE_JSON="/usr/local/lib/node_modules/openclaw/package.json"\n\
 if [ -f "$NPM_ENTRY" ] && [ -f "$NPM_PACKAGE_JSON" ]; then\n\
-  exec node "$NPM_ENTRY" "$@"\n\
+  NPM_VERSION=$(node -p "require(\"$NPM_PACKAGE_JSON\").version" 2>/dev/null || true)\n\
+  BASE_VERSION="${OPENCLAW_IMAGE_VERSION:-$(node -p "require(\"$BASE_PACKAGE_JSON\").version" 2>/dev/null || true)}"\n\
+  if [ -n "$NPM_VERSION" ] && [ -n "$BASE_VERSION" ] && [ "$(printf "%%s\\n%%s\\n" "$BASE_VERSION" "$NPM_VERSION" | sort -V | tail -1)" = "$NPM_VERSION" ]; then\n\
+    exec node "$NPM_ENTRY" "$@"\n\
+  fi\n\
 fi\n\
-exec node /usr/local/lib/node_modules/openclaw/dist/entry.js "$@"\n' > /opt/openclaw-bin/openclaw && \
+exec node "$BASE_ENTRY" "$@"\n' > /opt/openclaw-bin/openclaw && \
     chmod +x /opt/openclaw-bin/openclaw
 
 # Optional: Install Playwright Chromium for browser automation
