@@ -260,6 +260,61 @@ if [ "$(id -u)" = "0" ]; then
     done
 fi
 
+# Also fix ownership of any other @openclaw/* plugins present on the volume
+# (e.g. slack) so OpenClaw 2026.5.26+ does not block them as "suspicious
+# ownership" (uid=1001). REQUIRED_PLUGINS above covers the relay-critical ones;
+# this catches the rest. Idempotent.
+if [ "$(id -u)" = "0" ] && [ -d "$PLUGINS_HOME/@openclaw" ]; then
+    for p in "$PLUGINS_HOME/@openclaw"/*; do
+        if [ -d "$p" ]; then
+            chown -R root:root "$p" 2>/dev/null || true
+            find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$p" -type f -exec chmod a+r,go-w {} + 2>/dev/null || true
+        fi
+    done
+fi
+
+# ------------------------------------------------------------------------------
+# Patch: extend the Codex native-hook-relay wait timeout from 5s to 10s.
+#
+# Root cause (OpenClaw upstream issue #76793, still OPEN as of 2026.5.27):
+# Codex's PreToolUse "native hook relay" prefers a fast in-process direct
+# localhost bridge and only falls back to the authenticated gateway RPC
+# (nativeHook.invoke) if the bridge isn't ready within DEFAULT_RELAY_TIMEOUT_MS
+# (= 5e3 / 5s). On this Railway container, ACP runtime-ready latency is ~5.4s
+# (event-loop stalls of 1.6-2.4s under MCP/browser load), so the 5s wait loses
+# the race, Codex falls back to the gateway RPC, that path isn't reliably
+# registered -> "native hook relay not found" / "Native hook relay unavailable",
+# and the FIRST tool call of the turn (usually the mandatory Vilix get_context)
+# fails closed. Intermittent: warm relays win, cold turns lose.
+#
+# .27 already shipped PR #73950 (shared relay registry) + #83987 (deferred
+# unregister); the remaining unfixed piece is this timeout/latency window.
+# Bumping 5e3 -> 1e4 (10s) lets the direct bridge register before fallback.
+# Idempotent and re-applied every boot so it survives openclaw auto-updates.
+# REMOVE this block once #76793 ships in the pinned OpenClaw version.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    relay_patched=0
+    for dist in "$NPM_MODULE_DIR/dist" "$BAKED_MODULE_DIR/dist"; do
+        [ -d "$dist" ] || continue
+        for f in "$dist"/native-hook-relay-*.js; do
+            [ -f "$f" ] || continue
+            if grep -q 'DEFAULT_RELAY_TIMEOUT_MS = 5e3' "$f" 2>/dev/null; then
+                owner="$(stat -c '%U:%G' "$f" 2>/dev/null || echo openclaw:openclaw)"
+                if sed -i 's/DEFAULT_RELAY_TIMEOUT_MS = 5e3/DEFAULT_RELAY_TIMEOUT_MS = 1e4/g' "$f"; then
+                    chown "$owner" "$f" 2>/dev/null || true
+                    echo "Patched Codex native-hook-relay wait 5s->10s (#76793 workaround): $f"
+                    relay_patched=1
+                fi
+            fi
+        done
+    done
+    if [ "$relay_patched" = "0" ]; then
+        echo "native-hook-relay wait: nothing to patch (already 10s, or constant moved — recheck #76793)"
+    fi
+fi
+
 # Sync pre-bundled skills into the skills directory
 # Always overwrites bundled skill files to ensure Railway-aware instructions are current
 # (e.g. replaces upstream SKILL.md that references localhost with our $SEARXNG_URL version)
