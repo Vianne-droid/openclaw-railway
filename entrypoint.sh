@@ -284,13 +284,15 @@ fi
 # Idempotent: only acts when the versions differ. Restores root ownership after.
 # ------------------------------------------------------------------------------
 if [ "$(id -u)" = "0" ]; then
-    CORE_VER=""
-    if [ -f "$NPM_MODULE_DIR/package.json" ]; then
-        CORE_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
-    fi
-    if [ -z "$CORE_VER" ] && [ -f "$BAKED_MODULE_DIR/package.json" ]; then
-        CORE_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
-    fi
+    # The wrapper runs whichever core is HIGHER (baked vs persisted npm-global),
+    # so the codex plugin must match that EFFECTIVE version — not whichever file
+    # we read first. A stale older npm-global copy must NOT win (that bug shipped
+    # codex .26 against core .27 and broke the codex harness: "does not support
+    # openai/gpt-5.5 (provider is not one of: codex)").
+    CORE_NPM_VER=""; CORE_BAKED_VER=""
+    [ -f "$NPM_MODULE_DIR/package.json" ] && CORE_NPM_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
+    [ -f "$BAKED_MODULE_DIR/package.json" ] && CORE_BAKED_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
+    CORE_VER="$(printf '%s\n%s\n' "$CORE_NPM_VER" "$CORE_BAKED_VER" | grep -v '^$' | sort -V | tail -1)"
     CODEX_PKG="$PLUGINS_HOME/@openclaw/codex/package.json"
     CODEX_VER=""
     [ -f "$CODEX_PKG" ] && CODEX_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$CODEX_PKG" 2>/dev/null)"
