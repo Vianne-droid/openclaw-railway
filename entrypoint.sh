@@ -84,7 +84,8 @@ fi
 # OpenClaw 2026.5.26 validates plugin code ownership before loading plugins.
 # Runtime state stays owned by openclaw, but trusted plugin code must be
 # root-owned or it is blocked as suspicious when loaded from the persistent
-# Railway volume.
+# Railway volume. Keep it readable/traversable after dropping to openclaw so
+# the gateway and updater can still scan plugin manifests.
 if [ "$(id -u)" = "0" ]; then
     for p in \
         "$OPENCLAW_STATE_DIR/extensions/claude-mem" \
@@ -93,7 +94,8 @@ if [ "$(id -u)" = "0" ]; then
     do
         if [ -e "$p" ]; then
             chown -R root:root "$p" 2>/dev/null || true
-            chmod -R go-w "$p" 2>/dev/null || true
+            find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$p" -type f -exec chmod a+r,go-w {} + 2>/dev/null || true
         fi
     done
 fi
@@ -252,7 +254,8 @@ if [ "$(id -u)" = "0" ]; then
         p="$PLUGINS_HOME/$pkg"
         if [ -e "$p" ]; then
             chown -R root:root "$p" 2>/dev/null || true
-            chmod -R go-w "$p" 2>/dev/null || true
+            find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$p" -type f -exec chmod a+r,go-w {} + 2>/dev/null || true
         fi
     done
 fi
