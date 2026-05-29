@@ -275,6 +275,42 @@ if [ "$(id -u)" = "0" ] && [ -d "$PLUGINS_HOME/@openclaw" ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# Ensure the Codex plugin version matches the core OpenClaw version.
+# A skew (e.g. core 2026.5.27 + @openclaw/codex 2026.5.20) breaks the native
+# hook relay: on the older codex plugin the relay is NOT kept alive across the
+# per-turn "fresh fallback", so every tool call AFTER the first turn fails with
+# "Native hook relay unavailable" (deterministic turn-2 failure). The
+# keep-relay-alive fix shipped in 2026.5.27, so the plugin must track core.
+# Idempotent: only acts when the versions differ. Restores root ownership after.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    CORE_VER=""
+    if [ -f "$NPM_MODULE_DIR/package.json" ]; then
+        CORE_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
+    fi
+    if [ -z "$CORE_VER" ] && [ -f "$BAKED_MODULE_DIR/package.json" ]; then
+        CORE_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
+    fi
+    CODEX_PKG="$PLUGINS_HOME/@openclaw/codex/package.json"
+    CODEX_VER=""
+    [ -f "$CODEX_PKG" ] && CODEX_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$CODEX_PKG" 2>/dev/null)"
+    if [ -n "$CORE_VER" ] && [ "$CODEX_VER" != "$CORE_VER" ]; then
+        echo "Codex plugin skew (plugin=${CODEX_VER:-none} core=$CORE_VER); syncing codex plugin to $CORE_VER"
+        chown -R openclaw:openclaw "$PLUGINS_HOME/@openclaw" 2>/dev/null || true
+        su -s /bin/bash openclaw -c "openclaw plugins install @openclaw/codex@$CORE_VER --force" \
+            || echo "WARNING: codex plugin version-sync to $CORE_VER failed" >&2
+        for p in "$PLUGINS_HOME/@openclaw"/*; do
+            [ -d "$p" ] || continue
+            chown -R root:root "$p" 2>/dev/null || true
+            find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$p" -type f -exec chmod a+r,go-w {} + 2>/dev/null || true
+        done
+    else
+        echo "Codex plugin version matches core (${CODEX_VER:-none})"
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # Patch: extend the Codex native-hook-relay wait timeout from 5s to 10s.
 #
 # Root cause (OpenClaw upstream issue #76793, still OPEN as of 2026.5.27):
