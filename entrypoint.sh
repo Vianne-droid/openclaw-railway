@@ -229,7 +229,10 @@ chown openclaw:openclaw /data/.local /data/.npm
 # already present under $OPENCLAW_STATE_DIR/npm/node_modules. It's non-fatal so
 # the gateway still starts even if install fails (e.g. offline build).
 PLUGINS_HOME="$OPENCLAW_STATE_DIR/npm/node_modules"
-REQUIRED_PLUGINS=(@openclaw/codex @openclaw/whatsapp @openclaw/brave-plugin @openclaw/acpx)
+# codex is installed/version-synced by the dedicated block below (its 2026.6.x
+# install path moved to npm/projects/, so the generic check never finds it);
+# brave-plugin removed: env OPENCLAW_DISABLED_PLUGINS disables brave anyway.
+REQUIRED_PLUGINS=(@openclaw/whatsapp @openclaw/acpx)
 missing_plugins=()
 for pkg in "${REQUIRED_PLUGINS[@]}"; do
     if [ ! -f "$PLUGINS_HOME/$pkg/package.json" ]; then
@@ -294,6 +297,12 @@ if [ "$(id -u)" = "0" ]; then
     [ -f "$BAKED_MODULE_DIR/package.json" ] && CORE_BAKED_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
     CORE_VER="$(printf '%s\n%s\n' "$CORE_NPM_VER" "$CORE_BAKED_VER" | grep -v '^$' | sort -V | tail -1)"
     CODEX_PKG="$PLUGINS_HOME/@openclaw/codex/package.json"
+    # 2026.6.x installs codex under npm/projects/openclaw-codex-*/ - check there too,
+    # otherwise the version-sync misfires (reinstall) on every boot.
+    if [ ! -f "$CODEX_PKG" ]; then
+        ALT_CODEX_PKG="$(ls -1d /data/.openclaw/npm/projects/openclaw-codex-*/node_modules/@openclaw/codex/package.json 2>/dev/null | head -1)"
+        [ -n "$ALT_CODEX_PKG" ] && CODEX_PKG="$ALT_CODEX_PKG"
+    fi
     CODEX_VER=""
     [ -f "$CODEX_PKG" ] && CODEX_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$CODEX_PKG" 2>/dev/null)"
     if [ -n "$CORE_VER" ] && [ "$CODEX_VER" != "$CORE_VER" ]; then

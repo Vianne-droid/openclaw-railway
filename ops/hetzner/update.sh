@@ -10,6 +10,13 @@ UNIT=/etc/systemd/system/openclaw.service
 CUR=$(docker exec openclaw sh -lc 'openclaw --version' 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1)
 OLD_IMG=$(grep -oE 'openclaw:[0-9.]+' "$UNIT" | head -1)
 echo "[update] current=$CUR  target=$NEW  rollback-image=$OLD_IMG"
+# Real rollback anchor: same-version rebuilds overwrite the OLD_IMG tag, so tag the
+# currently-running image by ID before building.
+CUR_IMG_ID=$(docker inspect -f '{{.Image}}' openclaw 2>/dev/null || true)
+if [ -n "$CUR_IMG_ID" ]; then
+  ROLLBACK_TAG="openclaw:rollback-$(date +%Y%m%d%H%M)"
+  docker tag "$CUR_IMG_ID" "$ROLLBACK_TAG" && echo "[update] rollback anchor: $ROLLBACK_TAG ($CUR_IMG_ID)"
+fi
 cd /opt/openclaw/build || { echo "[update] no build dir /opt/openclaw/build"; exit 1; }
 cp -f Dockerfile "Dockerfile.bak-pre-$NEW"
 sed -i "s/ARG OPENCLAW_VERSION=.*/ARG OPENCLAW_VERSION=$NEW/" Dockerfile
@@ -23,7 +30,7 @@ systemctl daemon-reload
 systemctl restart openclaw
 echo "[update] waiting for health..."
 ok=0
-for i in $(seq 1 20); do curl -sf -m5 http://127.0.0.1:8080/health >/dev/null 2>&1 && { ok=1; break; }; sleep 6; done
+for i in $(seq 1 20); do curl -sf -m5 http://127.0.0.1:8080/health/ready >/dev/null 2>&1 && { ok=1; break; }; sleep 6; done
 if [ "$ok" != 1 ]; then
   echo "[update] HEALTH FAILED -> AUTO-ROLLBACK to $OLD_IMG"
   sed -i "s#openclaw:[0-9.]*#$OLD_IMG#" "$UNIT"
@@ -31,6 +38,8 @@ if [ "$ok" != 1 ]; then
   echo "[update] rolled back to $OLD_IMG. Update aborted (your OP is back on the old version)."
   exit 2
 fi
+echo "[update] running doctor (official post-update step)..."
+timeout 120 docker exec -u openclaw openclaw openclaw doctor 2>&1 | tail -5 || echo "[update] WARN: doctor non-zero/timeout (non-fatal)"
 RUN=$(docker exec openclaw sh -lc 'openclaw --version' 2>/dev/null)
 RELAY=$(docker logs --since 3m openclaw 2>&1 | grep -c "Native hook relay unavailable")
 HARNESS=$(docker logs --since 3m openclaw 2>&1 | grep -c "does not support openai")
