@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenClaw Gateway (Hetzner migration clone)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+# Clean any stale container first
+ExecStartPre=-/usr/bin/docker rm -f openclaw
+# Foreground run; systemd owns lifecycle. Unlimited PIDs (the whole point of leaving Railway).
+ExecStart=/usr/bin/docker run --name openclaw \
+  --env-file /opt/openclaw/openclaw.env \
+  -v /opt/openclaw/data:/data \
+  -p 127.0.0.1:8080:8080 \
+  --pids-limit=-1 \
+  --ulimit nofile=1048576:1048576 \
+  openclaw:2026.6.5
+ExecStop=/usr/bin/docker stop -t 30 openclaw
+
+[Install]
+WantedBy=multi-user.target

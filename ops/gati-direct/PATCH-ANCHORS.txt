@@ -1,0 +1,11 @@
+# These two anchors locate where to inject the Gati direct path into the compiled
+# Telegram ingress file. The patcher will:
+#   1. Locate the bundled bot dist file: /data/.npm-global/lib/node_modules/openclaw/dist/bot-*.js
+#      where: `function formatTelegramInboundLogLine(params) {` is present
+#   2. Inject canonical-helpers.js right after the closing brace of that function
+#      and before the `const createTelegramMessageProcessor = (deps) =>` declaration
+#   3. Inject the call site `if (await tryHandleGatiSjeDirectIngress(...)) { ... return; }`
+#      right after the `if (!context) { ... return; }` block inside the inbound
+#      handler `async function handleTelegramMessage` / message dispatch path.
+#
+# Idempotency: skip injection if `tryHandleGatiSjeDirectIngress` already exists.

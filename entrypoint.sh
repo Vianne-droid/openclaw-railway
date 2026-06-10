@@ -353,6 +353,184 @@ if [ "$(id -u)" = "0" ]; then
     fi
 fi
 
+# ------------------------------------------------------------------------------
+# Patch: Claude Fable 5 adaptive thinking support.
+#
+# Fable 5 rejects the older Anthropic thinking controls:
+# - thinking: { type: "disabled" }
+# - thinking: { type: "enabled", budget_tokens: ... }
+#
+# It expects adaptive thinking plus output_config.effort. OpenClaw 2026.6.5 does
+# not know this model yet, so the runtime can send the old payload when
+# reasoning is enabled. Apply this at every boot so it survives container
+# recreation until upstream ships native Fable support.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    FABLE_PATCH_DIRS="$NPM_MODULE_DIR/dist:$BAKED_MODULE_DIR/dist" node <<'NODE' || echo "WARNING: Fable 5 adaptive thinking patch failed" >&2
+const fs = require('fs');
+
+const dirs = (process.env.FABLE_PATCH_DIRS || '').split(':').filter(Boolean);
+
+function replaceOnce(content, from, to, label, file) {
+  if (content.includes(to)) return { content, changed: false };
+  if (!content.includes(from)) throw new Error(`missing ${label} anchor in ${file}`);
+  return { content: content.replace(from, to), changed: true };
+}
+
+function patchFile(file, patcher) {
+  if (!fs.existsSync(file)) return;
+  const before = fs.readFileSync(file, 'utf8');
+  const after = patcher(before, file);
+  if (after !== before) {
+    fs.writeFileSync(file, after);
+    console.log(`Patched Fable 5 adaptive thinking support: ${file}`);
+  }
+}
+
+function patchAnthropic(content, file) {
+  let out = content;
+  out = replaceOnce(
+    out,
+    `/**
+* Check if a model supports adaptive thinking (Opus 4.6+, Sonnet 4.6)
+*/
+function supportsAdaptiveThinking(modelId) {
+\treturn modelId.includes("opus-4-6") || modelId.includes("opus-4.6") || modelId.includes("opus-4-8") || modelId.includes("opus-4.8") || modelId.includes("opus-4-7") || modelId.includes("opus-4.7") || modelId.includes("sonnet-4-6") || modelId.includes("sonnet-4.6");
+}`,
+    `/**
+* Check if a model supports adaptive thinking (Opus 4.6+, Sonnet 4.6, Fable 5)
+*/
+function isClaudeFable5Model(modelId) {
+\treturn modelId.includes("fable-5") || modelId.includes("fable.5");
+}
+function supportsAdaptiveThinking(modelId) {
+\treturn modelId.includes("opus-4-6") || modelId.includes("opus-4.6") || modelId.includes("opus-4-8") || modelId.includes("opus-4.8") || modelId.includes("opus-4-7") || modelId.includes("opus-4.7") || modelId.includes("sonnet-4-6") || modelId.includes("sonnet-4.6") || isClaudeFable5Model(modelId);
+}`,
+    'direct provider adaptive support',
+    file
+  ).content;
+  out = replaceOnce(
+    out,
+    `\t\tcase "high": return "high";
+\t\tcase "max": return "max";`,
+    `\t\tcase "high": return "high";
+\t\tcase "xhigh": return isClaudeFable5Model(model.id) ? "xhigh" : "high";
+\t\tcase "max": return "max";`,
+    'direct provider xhigh mapping',
+    file
+  ).content;
+  out = replaceOnce(
+    out,
+    `\tif (!options?.reasoning) return streamAnthropic(model, context, {
+\t\t...base,
+\t\tthinkingEnabled: false
+\t});`,
+    `\tif (!options?.reasoning) return streamAnthropic(model, context, {
+\t\t...base,
+\t\tthinkingEnabled: isClaudeFable5Model(model.id),
+\t\teffort: isClaudeFable5Model(model.id) ? "high" : void 0
+\t});`,
+    'direct provider default adaptive mode',
+    file
+  ).content;
+  return out;
+}
+
+function patchTransport(content, file) {
+  let out = content;
+  out = replaceOnce(
+    out,
+    `function isClaudeOpus46Model(modelId) {
+\treturn modelId.includes("opus-4-6") || modelId.includes("opus-4.6");
+}
+function supportsAdaptiveThinking(modelId) {
+\treturn isClaudeOpus47OrNewerModel(modelId) || isClaudeOpus46Model(modelId) || modelId.includes("sonnet-4-6") || modelId.includes("sonnet-4.6");
+}`,
+    `function isClaudeOpus46Model(modelId) {
+\treturn modelId.includes("opus-4-6") || modelId.includes("opus-4.6");
+}
+function isClaudeFable5Model(modelId) {
+\treturn modelId.includes("fable-5") || modelId.includes("fable.5");
+}
+function supportsAdaptiveThinking(modelId) {
+\treturn isClaudeOpus47OrNewerModel(modelId) || isClaudeOpus46Model(modelId) || modelId.includes("sonnet-4-6") || modelId.includes("sonnet-4.6") || isClaudeFable5Model(modelId);
+}`,
+    'transport adaptive support',
+    file
+  ).content;
+  out = replaceOnce(
+    out,
+    `\t\tcase "xhigh":
+\t\t\tif (isClaudeOpus47OrNewerModel(modelId)) return "xhigh";
+\t\t\treturn isClaudeOpus46Model(modelId) ? "max" : "high";
+\t\tcase "max": return isClaudeOpus47OrNewerModel(modelId) ? "max" : "high";`,
+    `\t\tcase "xhigh":
+\t\t\tif (isClaudeOpus47OrNewerModel(modelId) || isClaudeFable5Model(modelId)) return "xhigh";
+\t\t\treturn isClaudeOpus46Model(modelId) ? "max" : "high";
+\t\tcase "max": return isClaudeOpus47OrNewerModel(modelId) || isClaudeFable5Model(modelId) ? "max" : "high";`,
+    'transport xhigh/max mapping',
+    file
+  ).content;
+  out = replaceOnce(
+    out,
+    `\tif (!options?.reasoning) {
+\t\tresolved.thinkingEnabled = false;
+\t\treturn resolved;
+\t}`,
+    `\tif (!options?.reasoning) {
+\t\tif (isClaudeFable5Model(model.id)) {
+\t\t\tresolved.thinkingEnabled = true;
+\t\t\tresolved.effort = "high";
+\t\t\treturn resolved;
+\t\t}
+\t\tresolved.thinkingEnabled = false;
+\t\treturn resolved;
+\t}`,
+    'transport default adaptive mode',
+    file
+  ).content;
+  return out;
+}
+
+for (const dir of dirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const name of fs.readdirSync(dir)) {
+    const file = `${dir}/${name}`;
+    try {
+      if (/^anthropic-.*\.js$/.test(name)) patchFile(file, patchAnthropic);
+      if (/^provider-stream-.*\.js$/.test(name)) patchFile(file, patchTransport);
+    } catch (err) {
+      console.error("WARNING: Fable patch skipped " + file + ": " + err.message);
+    }
+  }
+}
+NODE
+fi
+
+# ------------------------------------------------------------------------------
+# Patch: Gati SJE direct Telegram ingress.
+#
+# The @vjgati_bot fast lookup path is injected into OpenClaw's compiled
+# Telegram bot bundle. Rebuilds/restarts can refresh that bundle from a clean
+# OpenClaw package, so re-apply the patch at startup before the gateway process
+# starts. This is fail-open: if the patch cannot be applied, OpenClaw still
+# starts and the heartbeat reports the missing anchors.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    GATI_DIRECT_PATCH="$OPENCLAW_WORKSPACE_DIR/scripts/gati-direct/apply-patch.sh"
+    if [ -x "$GATI_DIRECT_PATCH" ]; then
+        if "$GATI_DIRECT_PATCH" --check >/dev/null 2>&1; then
+            echo "Gati SJE direct ingress patch already present"
+        elif "$GATI_DIRECT_PATCH"; then
+            echo "Patched Gati SJE direct Telegram ingress"
+        else
+            echo "WARNING: Gati SJE direct ingress patch failed; fast lookup may be unavailable" >&2
+        fi
+    else
+        echo "WARNING: Gati SJE direct patch script missing at $GATI_DIRECT_PATCH" >&2
+    fi
+fi
+
 # Sync pre-bundled skills into the skills directory
 # Always overwrites bundled skill files to ensure Railway-aware instructions are current
 # (e.g. replaces upstream SKILL.md that references localhost with our $SEARXNG_URL version)
