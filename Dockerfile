@@ -29,10 +29,12 @@ FROM node:24-bookworm-slim AS runtime
 
 # Build args for version and optional features
 ARG OPENCLAW_VERSION=2026.6.5
+ARG VILIX_MCP_SDK_VERSION=1.29.0
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
 ARG SIGNAL_CLI_VERSION=0.13.24
 ENV OPENCLAW_IMAGE_VERSION=${OPENCLAW_VERSION}
+ENV VILIX_MCP_SDK_VERSION=${VILIX_MCP_SDK_VERSION}
 
 # Install base runtime dependencies
 # - tini: proper PID 1 handling for signal forwarding
@@ -53,6 +55,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install to default /usr/local prefix BEFORE setting NPM_CONFIG_PREFIX to /data
 # so it's baked into the image and not hidden by the Railway volume mount.
 RUN npm install -g openclaw@${OPENCLAW_VERSION}
+
+# Conversation logger's Vilix bridge imports the MCP SDK from the persistent
+# /data npm tree. Bake a clean copy into the image so entrypoint can restore it
+# without network access when /data gets refreshed or partially pruned.
+RUN mkdir -p /opt/openclaw-vilix-sdk && \
+    npm install --prefix /opt/openclaw-vilix-sdk --save-exact --omit=dev \
+      @modelcontextprotocol/sdk@${VILIX_MCP_SDK_VERSION} && \
+    npm cache clean --force
 
 # Optional: Install Java + signal-cli for Signal channel support
 # Set INSTALL_SIGNAL_CLI=true in Railway build args if needed

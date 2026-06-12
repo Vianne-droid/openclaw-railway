@@ -233,6 +233,72 @@ chown openclaw:openclaw /data/.local /data/.npm
 # already present under $OPENCLAW_STATE_DIR/npm/node_modules. It's non-fatal so
 # the gateway still starts even if install fails (e.g. offline build).
 PLUGINS_HOME="$OPENCLAW_STATE_DIR/npm/node_modules"
+VILIX_MCP_SDK_VERSION="${VILIX_MCP_SDK_VERSION:-1.29.0}"
+VILIX_SDK_BAKED="/opt/openclaw-vilix-sdk/node_modules/@modelcontextprotocol/sdk"
+VILIX_SDK_BAKED_MODULES="/opt/openclaw-vilix-sdk/node_modules"
+VILIX_SDK_TARGET="$PLUGINS_HOME/@modelcontextprotocol/sdk"
+
+restore_vilix_mcp_sdk() {
+    local target_index="$VILIX_SDK_TARGET/dist/esm/client/index.js"
+    local target_transport="$VILIX_SDK_TARGET/dist/esm/client/streamableHttp.js"
+    local target_dep="$VILIX_SDK_TARGET/node_modules/zod/package.json"
+    local target_scope="$PLUGINS_HOME/@modelcontextprotocol"
+    local temp_target="$target_scope/.sdk-restore-$$"
+    local temp_prefix="/tmp/openclaw-vilix-sdk-$$"
+    local source_sdk="$VILIX_SDK_BAKED"
+    local source_modules="$VILIX_SDK_BAKED_MODULES"
+
+    if [ -f "$target_index" ] && [ -f "$target_transport" ] && [ -f "$target_dep" ]; then
+        return 0
+    fi
+
+    echo "Restoring Vilix MCP SDK dependency into $VILIX_SDK_TARGET"
+    mkdir -p "$target_scope"
+    rm -rf "$temp_target" "$temp_prefix"
+    mkdir -p "$temp_target"
+
+    if [ ! -d "$source_sdk" ]; then
+        echo "Baked Vilix MCP SDK missing; attempting npm fallback for @modelcontextprotocol/sdk@$VILIX_MCP_SDK_VERSION" >&2
+        if npm install --prefix "$temp_prefix" --save-exact --omit=dev "@modelcontextprotocol/sdk@$VILIX_MCP_SDK_VERSION" >/tmp/openclaw-vilix-sdk-restore.log 2>&1; then
+            source_sdk="$temp_prefix/node_modules/@modelcontextprotocol/sdk"
+            source_modules="$temp_prefix/node_modules"
+        else
+            echo "WARNING: Vilix MCP SDK restore failed; see /tmp/openclaw-vilix-sdk-restore.log" >&2
+            rm -rf "$temp_target" "$temp_prefix"
+            return 1
+        fi
+    fi
+
+    if ! (cd "$source_sdk" && tar -cf - .) | (cd "$temp_target" && tar -xf -); then
+        echo "WARNING: Failed to copy Vilix MCP SDK package" >&2
+        rm -rf "$temp_target" "$temp_prefix"
+        return 1
+    fi
+
+    mkdir -p "$temp_target/node_modules"
+    if [ -d "$source_modules" ]; then
+        if ! (cd "$source_modules" && tar --exclude='./@modelcontextprotocol/sdk' -cf - .) | (cd "$temp_target/node_modules" && tar -xf -); then
+            echo "WARNING: Failed to copy Vilix MCP SDK dependencies" >&2
+            rm -rf "$temp_target" "$temp_prefix"
+            return 1
+        fi
+    fi
+
+    rm -rf "$VILIX_SDK_TARGET"
+    if mv "$temp_target" "$VILIX_SDK_TARGET"; then
+        chown -R openclaw:openclaw "$target_scope" 2>/dev/null || true
+        rm -rf "$temp_prefix"
+        echo "Vilix MCP SDK restored: @modelcontextprotocol/sdk@$VILIX_MCP_SDK_VERSION"
+        return 0
+    fi
+
+    echo "WARNING: Failed to move Vilix MCP SDK into place" >&2
+    rm -rf "$temp_target" "$temp_prefix"
+    return 1
+}
+
+restore_vilix_mcp_sdk || true
+
 # codex is installed/version-synced by the dedicated block below (its 2026.6.x
 # install path moved to npm/projects/, so the generic check never finds it);
 # brave-plugin removed: env OPENCLAW_DISABLED_PLUGINS disables brave anyway.
