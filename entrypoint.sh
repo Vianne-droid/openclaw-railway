@@ -101,10 +101,9 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # Seed the persistent npm prefix from the Docker-baked install on first boot.
-# If the prefix was auto-seeded previously and still matches that seeded
-# version, refresh it on redeploys so new image versions become active.
-# If the runtime version differs from the seed marker, treat it as user-managed
-# and leave it alone.
+# On redeploys, refresh the persistent install whenever the Docker-baked
+# version is strictly newer than the version on the volume. Never downgrade:
+# if the volume copy is newer than the baked image, treat it as user-managed.
 SEEDED_NPM_PREFIX="false"
 BAKED_VERSION="$(node -e "try{const p=require(process.argv[1]);process.stdout.write(p.version||'')}catch{}" "$BAKED_MODULE_DIR/package.json")"
 RUNTIME_VERSION=""
@@ -187,12 +186,17 @@ if [ -f "$SEED_MARKER" ]; then
     SEEDED_VERSION="$(tr -d '\n' < "$SEED_MARKER")"
 fi
 
+version_gt() {
+    [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] && \
+        [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
 SEED_ACTION=""
 if [ ! -f "$NPM_ENTRY" ] && [ -f "$BAKED_ENTRY" ]; then
     echo "Seeding persistent OpenClaw install into $NPM_PREFIX"
     SEED_ACTION="seed"
-elif [ -f "$NPM_ENTRY" ] && [ -n "$BAKED_VERSION" ] && [ -n "$SEEDED_VERSION" ] && [ "$RUNTIME_VERSION" = "$SEEDED_VERSION" ] && [ "$RUNTIME_VERSION" != "$BAKED_VERSION" ]; then
-    echo "Refreshing auto-seeded OpenClaw install to baked version $BAKED_VERSION"
+elif [ -f "$NPM_ENTRY" ] && version_gt "$BAKED_VERSION" "$RUNTIME_VERSION"; then
+    echo "Upgrading persistent OpenClaw install ${RUNTIME_VERSION:-unknown} -> baked $BAKED_VERSION"
     SEED_ACTION="refresh"
 fi
 
@@ -233,23 +237,39 @@ PLUGINS_HOME="$OPENCLAW_STATE_DIR/npm/node_modules"
 # install path moved to npm/projects/, so the generic check never finds it);
 # brave-plugin removed: env OPENCLAW_DISABLED_PLUGINS disables brave anyway.
 REQUIRED_PLUGINS=(@openclaw/whatsapp @openclaw/acpx)
-missing_plugins=()
+CORE_NPM_VER=""; CORE_BAKED_VER=""
+[ -f "$NPM_MODULE_DIR/package.json" ] && CORE_NPM_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
+[ -f "$BAKED_MODULE_DIR/package.json" ] && CORE_BAKED_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
+EFFECTIVE_CORE_VERSION="$(printf '%s\n%s\n' "$CORE_NPM_VER" "$CORE_BAKED_VER" | grep -v '^$' | sort -V | tail -1)"
+plugins_to_sync=()
 for pkg in "${REQUIRED_PLUGINS[@]}"; do
-    if [ ! -f "$PLUGINS_HOME/$pkg/package.json" ]; then
-        missing_plugins+=("$pkg")
+    pkg_json="$PLUGINS_HOME/$pkg/package.json"
+    pkg_ver=""
+    [ -f "$pkg_json" ] && pkg_ver="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$pkg_json" 2>/dev/null)"
+    if [ ! -f "$pkg_json" ] || { [ -n "$EFFECTIVE_CORE_VERSION" ] && [ "$pkg_ver" != "$EFFECTIVE_CORE_VERSION" ]; }; then
+        if [ -n "$EFFECTIVE_CORE_VERSION" ]; then
+            plugins_to_sync+=("$pkg@$EFFECTIVE_CORE_VERSION")
+        else
+            plugins_to_sync+=("$pkg")
+        fi
     fi
 done
-if [ ${#missing_plugins[@]} -gt 0 ]; then
-    echo "Bootstrapping missing external plugins: ${missing_plugins[*]}"
+if [ ${#plugins_to_sync[@]} -gt 0 ]; then
+    echo "Syncing external plugins: ${plugins_to_sync[*]}"
     if [ "$(id -u)" = "0" ]; then
-        su -s /bin/bash openclaw -c "openclaw plugins install ${missing_plugins[*]}" \
-            || echo "WARNING: external plugin bootstrap failed; gateway will start without them" >&2
+        chown -R openclaw:openclaw "$PLUGINS_HOME/@openclaw" 2>/dev/null || true
+        for spec in "${plugins_to_sync[@]}"; do
+            su -s /bin/bash openclaw -c "openclaw plugins install '$spec' --force" \
+                || echo "WARNING: external plugin sync failed for $spec; gateway will start without it" >&2
+        done
     else
-        openclaw plugins install "${missing_plugins[@]}" \
-            || echo "WARNING: external plugin bootstrap failed; gateway will start without them" >&2
+        for spec in "${plugins_to_sync[@]}"; do
+            openclaw plugins install "$spec" --force \
+                || echo "WARNING: external plugin sync failed for $spec; gateway will start without it" >&2
+        done
     fi
 else
-    echo "External plugins present: ${REQUIRED_PLUGINS[*]}"
+    echo "External plugins match core: ${REQUIRED_PLUGINS[*]}"
 fi
 
 if [ "$(id -u)" = "0" ]; then
