@@ -33,6 +33,23 @@ const streamSimpleOpenAICodexResponses = (model, context, options) => {
 \tconst reasoningEffort = clampedReasoning === "off" ? void 0 : clampedReasoning === "max" ? "xhigh" : clampedReasoning;
 };
 `);
+  fs.writeFileSync(path.join(dist, "thinking-fixture.js"), `
+function resolveThinkingProfile(params) {
+\tconst context = resolveThinkingPolicyContext(params);
+\tif (!context.normalizedProvider) return buildBaseThinkingProfile();
+\tconst pluginProfile = resolveProviderThinkingProfile({ provider: context.normalizedProvider });
+\tif (pluginProfile) {
+\t\tconst normalized = normalizeThinkingProfile(pluginProfile);
+\t\tif (normalized.levels.length > 0 && (context.reasoning !== false || pluginProfile.preserveWhenCatalogReasoningFalse === true)) return normalized;
+\t}
+\tif (context.reasoning === false) return buildOffOnlyThinkingProfile();
+\tconst defaultLevel = resolveProviderDefaultThinkingLevel({ provider: context.normalizedProvider });
+\tconst binaryDecision = resolveProviderBinaryThinking({ provider: context.normalizedProvider });
+\tconst profile = binaryDecision === true ? buildBinaryThinkingProfile(defaultLevel) : buildBaseThinkingProfile(defaultLevel);
+\tif (binaryDecision !== true && catalogSupportsXHigh(context.compat)) appendProfileLevel(profile, "xhigh");
+\treturn profile;
+}
+`);
   return root;
 }
 
@@ -40,7 +57,7 @@ test("patches GPT-5.6 max capability and transport idempotently", () => {
   const root = fixture();
   const first = spawnSync(process.execPath, [patchScript, root], { encoding: "utf8" });
   assert.equal(first.status, 0, first.stderr);
-  assert.match(first.stdout, /patched files=2/);
+  assert.match(first.stdout, /patched files=3/);
 
   const second = spawnSync(process.execPath, [patchScript, root], { encoding: "utf8" });
   assert.equal(second.status, 0, second.stderr);
@@ -48,9 +65,12 @@ test("patches GPT-5.6 max capability and transport idempotently", () => {
 
   const thinking = fs.readFileSync(path.join(root, "dist/sanitize-unicode-fixture.js"), "utf8");
   const transport = fs.readFileSync(path.join(root, "dist/openai-chatgpt-responses-fixture.js"), "utf8");
+  const gatewayThinking = fs.readFileSync(path.join(root, "dist/thinking-fixture.js"), "utf8");
   assert.match(thinking, /gpt56MaxContract/);
   assert.match(transport, /supportsGpt56Max/);
   assert.match(transport, /clampedReasoning === "max" && !supportsGpt56Max/);
+  assert.match(gatewayThinking, /vianne-gpt56-max:gateway-profile-v2/);
+  assert.match(gatewayThinking, /appendProfileLevel\(profile, "max"\)/);
 });
 
 test("fails closed for an unreviewed OpenClaw version", () => {

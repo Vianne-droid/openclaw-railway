@@ -10,6 +10,10 @@ if (!moduleDir) throw new Error("usage: verify-gpt56-max-payload.mjs <openclaw-m
 const distDir = path.join(moduleDir, "dist");
 const transports = fs.readdirSync(distDir).filter((name) => /^openai-chatgpt-responses-.*\.js$/.test(name));
 if (transports.length !== 1) throw new Error(`expected one Codex transport, found ${transports.length}`);
+const thinkingProfiles = fs.readdirSync(distDir)
+  .filter((name) => /^thinking-.*\.js$/.test(name))
+  .filter((name) => fs.readFileSync(path.join(distDir, name), "utf8").includes("function isThinkingLevelSupported(params)"));
+if (thinkingProfiles.length !== 1) throw new Error(`expected one gateway thinking profile, found ${thinkingProfiles.length}`);
 
 let capturedBody;
 const originalFetch = globalThis.fetch;
@@ -22,6 +26,12 @@ globalThis.fetch = async (_url, init) => {
 };
 
 try {
+  const thinkingUrl = `${pathToFileURL(path.join(distDir, thinkingProfiles[0])).href}?verify=${Date.now()}`;
+  const { n: isThinkingLevelSupported } = await import(thinkingUrl);
+  if (!isThinkingLevelSupported({ provider: "openai", model: "gpt-5.6-sol", level: "max" })) {
+    throw new Error("gateway thinking profile rejects GPT-5.6 max");
+  }
+
   const transportUrl = `${pathToFileURL(path.join(distDir, transports[0])).href}?verify=${Date.now()}`;
   const { streamSimpleOpenAICodexResponses } = await import(transportUrl);
   const fakeClaims = Buffer.from(JSON.stringify({
@@ -58,7 +68,7 @@ try {
   if (capturedBody.reasoning?.effort !== "max") {
     throw new Error(`expected outbound reasoning.effort=max, got ${capturedBody.reasoning?.effort ?? "unset"}`);
   }
-  console.log("GPT56_MAX_PAYLOAD_OK model=gpt-5.6-sol reasoning.effort=max");
+  console.log("GPT56_MAX_PAYLOAD_OK gateway=max model=gpt-5.6-sol reasoning.effort=max");
 } finally {
   globalThis.fetch = originalFetch;
 }
