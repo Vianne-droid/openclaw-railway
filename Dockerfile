@@ -28,7 +28,7 @@ COPY src/ ./src/
 FROM node:24-bookworm-slim AS runtime
 
 # Build args for version and optional features
-ARG OPENCLAW_VERSION=2026.6.5
+ARG OPENCLAW_VERSION=2026.6.11
 ARG VILIX_MCP_SDK_VERSION=1.29.0
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
@@ -55,6 +55,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install to default /usr/local prefix BEFORE setting NPM_CONFIG_PREFIX to /data
 # so it's baked into the image and not hidden by the Railway volume mount.
 RUN npm install -g openclaw@${OPENCLAW_VERSION}
+
+# OpenClaw 2026.6.11 discovers GPT-5.6 Sol but does not expose its xhigh/max
+# capability map and rewrites max to xhigh on the ChatGPT/Codex OAuth transport.
+# Apply a version-locked patch at build time; the entrypoint re-applies it to
+# the persistent npm copy before the gateway starts.
+COPY scripts/patch-gpt56-max.cjs /opt/openclaw-patches/patch-gpt56-max.cjs
+COPY scripts/verify-gpt56-max-payload.mjs /opt/openclaw-patches/verify-gpt56-max-payload.mjs
+RUN node /opt/openclaw-patches/patch-gpt56-max.cjs /usr/local/lib/node_modules/openclaw && \
+    node /opt/openclaw-patches/verify-gpt56-max-payload.mjs /usr/local/lib/node_modules/openclaw
 
 # Conversation logger's Vilix bridge imports the MCP SDK from the persistent
 # /data npm tree. Bake a clean copy into the image so entrypoint can restore it

@@ -408,6 +408,32 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# Patch: GPT-5.6 Sol true max reasoning over ChatGPT/Codex OAuth.
+#
+# OpenClaw 2026.6.11 omits xhigh/max from the live Sol capability map and then
+# rewrites max to xhigh in its OAuth transport. The build patches the baked
+# package; this re-applies the same reviewed patch to the persistent npm copy
+# before the gateway starts. The patcher is version-locked and idempotent.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    GPT56_MAX_PATCH="/opt/openclaw-patches/patch-gpt56-max.cjs"
+    GPT56_MAX_VERIFY="/opt/openclaw-patches/verify-gpt56-max-payload.mjs"
+    if [ -f "$GPT56_MAX_PATCH" ]; then
+        for module_dir in "$NPM_MODULE_DIR" "$BAKED_MODULE_DIR"; do
+            [ -f "$module_dir/package.json" ] || continue
+            if node "$GPT56_MAX_PATCH" "$module_dir"; then
+                node "$GPT56_MAX_VERIFY" "$module_dir" \
+                    || echo "WARNING: GPT-5.6 max outbound payload verification failed for $module_dir" >&2
+            else
+                echo "WARNING: GPT-5.6 max patch not applied to $module_dir" >&2
+            fi
+        done
+    else
+        echo "WARNING: GPT-5.6 max patch script missing" >&2
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # Patch: extend the Codex native-hook-relay wait timeout from 5s to 10s.
 #
 # Root cause (OpenClaw upstream issue #76793, still OPEN as of 2026.5.27):
