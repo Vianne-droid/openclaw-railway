@@ -90,6 +90,7 @@ if [ "$(id -u)" = "0" ]; then
     for p in \
         "$OPENCLAW_STATE_DIR/extensions/claude-mem" \
         "$OPENCLAW_STATE_DIR/extensions/conversation-logger" \
+        "$OPENCLAW_STATE_DIR/extensions/vilix-memory-hook" \
         "$OPENCLAW_STATE_DIR/extensions/gati-sje-direct"
     do
         if [ -e "$p" ]; then
