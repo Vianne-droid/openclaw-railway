@@ -3,7 +3,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const SUPPORTED_OPENCLAW_VERSION = "2026.6.11";
+const LEGACY_PATCH_VERSION = "2026.6.11";
+const NATIVE_SUPPORT_VERSION = "2026.7.1";
 const MARKER = "vianne-gpt56-max";
 
 function fail(message) {
@@ -29,6 +30,15 @@ function findSingleContaining(distDir, pattern, anchor, label) {
     fail(`expected exactly one ${label} file in ${distDir}, found ${matches.length}`);
   }
   return matches[0];
+}
+
+function findAllContaining(distDir, pattern, anchor, label) {
+  const matches = fs.readdirSync(distDir)
+    .filter((name) => pattern.test(name))
+    .map((name) => path.join(distDir, name))
+    .filter((file) => fs.readFileSync(file, "utf8").includes(anchor));
+  if (matches.length === 0) fail(`expected at least one ${label} file in ${distDir}, found 0`);
+  return matches;
 }
 
 function replaceOnce(content, from, to, label, file) {
@@ -132,6 +142,40 @@ function verify(thinkingFile, transportFile, gatewayThinkingFile) {
   }
 }
 
+function verifyNativeSupport(distDir) {
+  const policyFiles = findAllContaining(
+    distDir,
+    /^thinking-policy-.*\.js$/,
+    "function buildOpenAIThinkingProfile(params)",
+    "native OpenAI thinking policy",
+  );
+  const runtimeFiles = findAllContaining(
+    distDir,
+    /^simple-completion-runtime-.*\.js$/,
+    'supportsOpenAIReasoningEffort(model, "max") ? "max" : "xhigh"',
+    "native simple-completion max transport",
+  );
+
+  for (const file of policyFiles) {
+    const content = fs.readFileSync(file, "utf8");
+    for (const anchor of [
+      'const isSol = modelId === "gpt-5.6-sol"',
+      'const isTerra = modelId === "gpt-5.6-terra"',
+      'const isLuna = modelId === "gpt-5.6-luna"',
+      'authoritativeCodexEfforts.includes("max") : isSol || isTerra || isLuna',
+      'supportsMax ? [{ id: "max" }] : []',
+    ]) {
+      if (!content.includes(anchor)) fail(`native GPT-5.6 max anchor missing from ${file}: ${anchor}`);
+    }
+  }
+  for (const file of runtimeFiles) {
+    const content = fs.readFileSync(file, "utf8");
+    if (!content.includes('case "max": return isOpenAIProvider(model.provider)')) {
+      fail(`native model-gated max pass-through missing from ${file}`);
+    }
+  }
+}
+
 function main() {
   const moduleDir = process.argv[2];
   if (!moduleDir) fail("usage: patch-gpt56-max.cjs <openclaw-module-dir>");
@@ -141,8 +185,13 @@ function main() {
   if (!fs.existsSync(packageFile) || !fs.existsSync(distDir)) fail(`invalid OpenClaw module directory: ${moduleDir}`);
 
   const version = JSON.parse(fs.readFileSync(packageFile, "utf8")).version;
-  if (version !== SUPPORTED_OPENCLAW_VERSION) {
-    fail(`version ${version} is not reviewed; expected ${SUPPORTED_OPENCLAW_VERSION}`);
+  if (version === NATIVE_SUPPORT_VERSION) {
+    verifyNativeSupport(distDir);
+    console.log(`[gpt56-max] verified native support in OpenClaw ${version}; patched files=0`);
+    return;
+  }
+  if (version !== LEGACY_PATCH_VERSION) {
+    fail(`version ${version} is not reviewed; expected ${LEGACY_PATCH_VERSION} or ${NATIVE_SUPPORT_VERSION}`);
   }
 
   const thinkingFile = findSingle(distDir, /^sanitize-unicode-.*\.js$/, "thinking capability");

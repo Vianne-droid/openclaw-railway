@@ -8,6 +8,42 @@ const moduleDir = process.argv[2];
 if (!moduleDir) throw new Error("usage: verify-gpt56-max-payload.mjs <openclaw-module-dir>");
 
 const distDir = path.join(moduleDir, "dist");
+const version = JSON.parse(fs.readFileSync(path.join(moduleDir, "package.json"), "utf8")).version;
+
+if (version === "2026.7.1") {
+  const policies = fs.readdirSync(distDir)
+    .filter((name) => /^thinking-policy-.*\.js$/.test(name))
+    .filter((name) => fs.readFileSync(path.join(distDir, name), "utf8").includes("function buildOpenAIThinkingProfile(params)"));
+  if (policies.length === 0) throw new Error("native OpenAI thinking policy not found");
+
+  for (const policy of policies) {
+    const policyUrl = `${pathToFileURL(path.join(distDir, policy)).href}?verify=${Date.now()}`;
+    const { t: resolveOpenAICodexThinkingProfile } = await import(policyUrl);
+    if (typeof resolveOpenAICodexThinkingProfile !== "function") {
+      throw new Error(`native Codex thinking resolver missing from ${policy}`);
+    }
+    const sol = resolveOpenAICodexThinkingProfile("gpt-5.6-sol", "codex");
+    const terra = resolveOpenAICodexThinkingProfile("gpt-5.6-terra", "codex");
+    const luna = resolveOpenAICodexThinkingProfile("gpt-5.6-luna", "codex");
+    const ids = (profile) => profile.levels.map((level) => level.id);
+    if (!ids(sol).includes("max") || !ids(sol).includes("ultra")) throw new Error(`${policy} rejects Sol max/ultra`);
+    if (!ids(terra).includes("max") || !ids(terra).includes("ultra")) throw new Error(`${policy} rejects Terra max/ultra`);
+    if (!ids(luna).includes("max")) throw new Error(`${policy} rejects Luna max`);
+  }
+
+  const runtimes = fs.readdirSync(distDir)
+    .filter((name) => /^simple-completion-runtime-.*\.js$/.test(name))
+    .filter((name) => fs.readFileSync(path.join(distDir, name), "utf8")
+      .includes('supportsOpenAIReasoningEffort(model, "max") ? "max" : "xhigh"'));
+  if (runtimes.length === 0) throw new Error("native GPT-5.6 max transport not found");
+  console.log("GPT56_NATIVE_SUPPORT_OK sol=max+ultra terra=max+ultra luna=max transport=model-gated-max");
+  process.exit(0);
+}
+
+if (version !== "2026.6.11") {
+  throw new Error(`version ${version} is not reviewed; expected 2026.6.11 or 2026.7.1`);
+}
+
 const transports = fs.readdirSync(distDir).filter((name) => /^openai-chatgpt-responses-.*\.js$/.test(name));
 if (transports.length !== 1) throw new Error(`expected one Codex transport, found ${transports.length}`);
 const thinkingProfiles = fs.readdirSync(distDir)
