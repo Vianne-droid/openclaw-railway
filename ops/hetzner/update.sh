@@ -12,6 +12,15 @@ HEALTH_URL="${OPENCLAW_HEALTH_URL:-http://127.0.0.1:8080/health/ready}"
 FAIL_LOG_DIR="${OPENCLAW_FAIL_LOG_DIR:-/opt/openclaw/logs}"
 HEALTH_ATTEMPTS="${OPENCLAW_HEALTH_ATTEMPTS:-60}"
 HEALTH_INTERVAL_SECONDS="${OPENCLAW_HEALTH_INTERVAL_SECONDS:-6}"
+MAINTENANCE_MARKER="${OPENCLAW_UPDATE_MAINTENANCE_MARKER:-/opt/openclaw/data/control/openclaw-update-in-progress}"
+MARKER_ACTIVE=0
+clear_maintenance_marker() {
+  if [ "$MARKER_ACTIVE" = 1 ]; then
+    rm -f -- "$MAINTENANCE_MARKER"
+    MARKER_ACTIVE=0
+  fi
+}
+trap clear_maintenance_marker EXIT
 case "$HEALTH_ATTEMPTS:$HEALTH_INTERVAL_SECONDS" in
   *[!0-9:]*|0:*|*:0) echo "[update] invalid health wait settings"; exit 1 ;;
 esac
@@ -37,6 +46,16 @@ echo "[update] building openclaw:$NEW (~8-10 min; live OP keeps running during b
 if ! docker build --build-arg OPENCLAW_VERSION="$NEW" --build-arg INSTALL_BROWSER=true -t "openclaw:$NEW" . ; then
   echo "[update] BUILD FAILED — nothing swapped, still live on $CUR ($OLD_IMG)"; exit 1
 fi
+mkdir -p "$(dirname "$MAINTENANCE_MARKER")"
+marker_tmp="${MAINTENANCE_MARKER}.$$.$RANDOM.tmp"
+{
+  printf 'target=%s\n' "$NEW"
+  printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'owner=hetzner-update-script\n'
+} > "$marker_tmp"
+mv "$marker_tmp" "$MAINTENANCE_MARKER"
+MARKER_ACTIVE=1
+echo "[update] planned-maintenance marker active; container self-heal is paused during swap/rollback"
 echo "[update] swapping systemd unit -> openclaw:$NEW (brief restart)..."
 sed -E -i "s#openclaw:[A-Za-z0-9._-]+#openclaw:$NEW#" "$UNIT"
 systemctl daemon-reload
