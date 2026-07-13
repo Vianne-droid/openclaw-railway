@@ -302,7 +302,10 @@ restore_vilix_mcp_sdk || true
 # codex is installed/version-synced by the dedicated block below (its 2026.6.x
 # install path moved to npm/projects/, so the generic check never finds it);
 # brave-plugin removed: env OPENCLAW_DISABLED_PLUGINS disables brave anyway.
-REQUIRED_PLUGINS=(@openclaw/whatsapp @openclaw/acpx)
+# Keep every enabled external channel/runtime plugin on the same release as core;
+# OpenClaw 2026.7.1 reports version drift when an older Slack package survives
+# on the persistent volume.
+REQUIRED_PLUGINS=(@openclaw/whatsapp @openclaw/acpx @openclaw/slack)
 CORE_NPM_VER=""; CORE_BAKED_VER=""
 [ -f "$NPM_MODULE_DIR/package.json" ] && CORE_NPM_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
 [ -f "$BAKED_MODULE_DIR/package.json" ] && CORE_BAKED_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
