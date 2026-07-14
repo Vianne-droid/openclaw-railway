@@ -97,13 +97,16 @@ RUN groupadd --system --gid 1001 openclaw && \
     useradd --system --uid 1001 --gid openclaw --shell /bin/bash --create-home openclaw
 
 # Create openclaw CLI wrapper that ALWAYS runs first (PATH-priority via /opt/openclaw-bin).
-# Injects OPENCLAW_GATEWAY_TOKEN so the CLI can authenticate with the gateway in ANY
-# shell context (docker exec, Railway shell, web terminal, scripts).
+# Injects the gateway token and internal gateway port so background CLI calls
+# bypass the public wrapper port and authenticate against the real Gateway.
 # Delegates to the npm-upgraded version only when it is not older than the baked image.
 RUN mkdir -p /opt/openclaw-bin && \
     printf '#!/bin/bash\n\
 if [ -z "$OPENCLAW_GATEWAY_TOKEN" ] && [ -f "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token" ]; then\n\
   export OPENCLAW_GATEWAY_TOKEN=$(cat "${OPENCLAW_STATE_DIR:-/data/.openclaw}/gateway.token")\n\
+fi\n\
+if [ -z "$OPENCLAW_GATEWAY_PORT" ]; then\n\
+  export OPENCLAW_GATEWAY_PORT="${INTERNAL_GATEWAY_PORT:-18789}"\n\
 fi\n\
 if [ -z "$OPENCLAW_BUNDLED_SKILLS_DIR" ]; then\n\
   export OPENCLAW_BUNDLED_SKILLS_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}/skills"\n\
