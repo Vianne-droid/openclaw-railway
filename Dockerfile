@@ -28,7 +28,7 @@ COPY src/ ./src/
 FROM node:24-bookworm-slim AS runtime
 
 # Build args for version and optional features
-ARG OPENCLAW_VERSION=2026.6.11
+ARG OPENCLAW_VERSION=2026.7.1
 ARG VILIX_MCP_SDK_VERSION=1.29.0
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
@@ -62,8 +62,12 @@ RUN npm install -g openclaw@${OPENCLAW_VERSION}
 # the persistent npm copy before the gateway starts.
 COPY scripts/patch-gpt56-max.cjs /opt/openclaw-patches/patch-gpt56-max.cjs
 COPY scripts/verify-gpt56-max-payload.mjs /opt/openclaw-patches/verify-gpt56-max-payload.mjs
+COPY scripts/fast-native-hook-relay.mjs /opt/openclaw-patches/fast-native-hook-relay.mjs
+COPY scripts/patch-native-hook-relay.cjs /opt/openclaw-patches/patch-native-hook-relay.cjs
 RUN node /opt/openclaw-patches/patch-gpt56-max.cjs /usr/local/lib/node_modules/openclaw && \
-    node /opt/openclaw-patches/verify-gpt56-max-payload.mjs /usr/local/lib/node_modules/openclaw
+    node /opt/openclaw-patches/verify-gpt56-max-payload.mjs /usr/local/lib/node_modules/openclaw && \
+    node --check /opt/openclaw-patches/fast-native-hook-relay.mjs && \
+    node /opt/openclaw-patches/patch-native-hook-relay.cjs /usr/local/lib/node_modules/openclaw
 
 # Conversation logger's Vilix bridge imports the MCP SDK from the persistent
 # /data npm tree. Bake a clean copy into the image so entrypoint can restore it

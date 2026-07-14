@@ -438,6 +438,29 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# Patch: replace the full-CLI native hook relay cold start with a tiny client.
+#
+# OpenClaw already keeps the policy/plugin hook bridge inside the gateway, but
+# its Codex hook command starts the entire OpenClaw CLI before and after every
+# tool just to call that bridge. The version-locked client keeps all policy and
+# plugin hooks (including Vilix) in the gateway and preserves fail-closed
+# PreToolUse behavior while removing the multi-second CLI startup tax.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    FAST_RELAY_PATCH="/opt/openclaw-patches/patch-native-hook-relay.cjs"
+    if [ -f "$FAST_RELAY_PATCH" ]; then
+        for module_dir in "$NPM_MODULE_DIR" "$BAKED_MODULE_DIR"; do
+            [ -f "$module_dir/package.json" ] || continue
+            if ! node "$FAST_RELAY_PATCH" "$module_dir"; then
+                echo "WARNING: fast native hook relay patch not applied to $module_dir; stock fail-closed relay remains active" >&2
+            fi
+        done
+    else
+        echo "WARNING: fast native hook relay patch script missing; stock fail-closed relay remains active" >&2
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # Patch: extend the Codex native-hook-relay wait timeout from 5s to 10s.
 #
 # Root cause (OpenClaw upstream issue #76793, still OPEN as of 2026.5.27):
