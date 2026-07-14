@@ -368,15 +368,28 @@ if [ "$(id -u)" = "0" ] && [ -d "$PLUGINS_HOME/@openclaw" ]; then
 fi
 
 # Keep the official local-embedding provider installed at the core version.
-# Its native node-llama-cpp dependency lives inside the managed plugin project,
-# so this survives normal OpenClaw refreshes and avoids metered embedding APIs.
+# Prefer the hardened root-owned extension copy when present; otherwise use the
+# managed npm project. This avoids reinstalling a duplicate provider after the
+# extension has been hardened in place.
 LLAMA_CPP_PACKAGE="@openclaw/llama-cpp-provider"
-LLAMA_CPP_PKG_JSON="$(ls -1dt "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-llama-cpp-provider-*/node_modules/@openclaw/llama-cpp-provider/package.json 2>/dev/null | head -1)"
+LLAMA_CPP_EXTENSION="$OPENCLAW_STATE_DIR/extensions/llama-cpp"
+LLAMA_CPP_PKG_JSON=""
+if [ -f "$LLAMA_CPP_EXTENSION/package.json" ]; then
+    LLAMA_CPP_PKG_JSON="$LLAMA_CPP_EXTENSION/package.json"
+else
+    LLAMA_CPP_PKG_JSON="$(ls -1dt "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-llama-cpp-provider-*/node_modules/@openclaw/llama-cpp-provider/package.json 2>/dev/null | head -1)"
+fi
 LLAMA_CPP_VER=""
 [ -f "$LLAMA_CPP_PKG_JSON" ] && LLAMA_CPP_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$LLAMA_CPP_PKG_JSON" 2>/dev/null)"
 LLAMA_CPP_CONFIGURED="$(node -e "try{const c=require(process.argv[1]);process.stdout.write(c.plugins?.entries?.['llama-cpp']?.enabled===false?'0':c.plugins?.entries?.['llama-cpp']?'1':'0')}catch{process.stdout.write('0')}" "$OPENCLAW_STATE_DIR/openclaw.json" 2>/dev/null)"
 if [ -n "$EFFECTIVE_CORE_VERSION" ] && { [ "$LLAMA_CPP_VER" != "$EFFECTIVE_CORE_VERSION" ] || [ "$LLAMA_CPP_CONFIGURED" != "1" ]; }; then
     echo "Local embedding plugin needs sync (plugin=${LLAMA_CPP_VER:-none} core=$EFFECTIVE_CORE_VERSION configured=$LLAMA_CPP_CONFIGURED)"
+    if [ "$(id -u)" = "0" ] && [ -d "$LLAMA_CPP_EXTENSION" ] && [ "$LLAMA_CPP_VER" != "$EFFECTIVE_CORE_VERSION" ]; then
+        LLAMA_CPP_BACKUP="$OPENCLAW_STATE_DIR/backups/llama-cpp-${LLAMA_CPP_VER:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$(dirname "$LLAMA_CPP_BACKUP")"
+        mv "$LLAMA_CPP_EXTENSION" "$LLAMA_CPP_BACKUP"
+        echo "Archived mismatched local embedding plugin at $LLAMA_CPP_BACKUP"
+    fi
     if [ "$(id -u)" = "0" ]; then
         su -s /bin/bash openclaw -c "OPENCLAW_GATEWAY_PORT='${INTERNAL_GATEWAY_PORT:-18789}' openclaw plugins install '$LLAMA_CPP_PACKAGE@$EFFECTIVE_CORE_VERSION' --force --pin" \
             || echo "WARNING: llama.cpp provider sync to $EFFECTIVE_CORE_VERSION failed" >&2
@@ -389,7 +402,7 @@ else
 fi
 
 if [ "$(id -u)" = "0" ]; then
-    for p in "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-llama-cpp-provider-*/node_modules/@openclaw/llama-cpp-provider; do
+    for p in "$LLAMA_CPP_EXTENSION" "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-llama-cpp-provider-*/node_modules/@openclaw/llama-cpp-provider; do
         [ -d "$p" ] || continue
         chown -R root:root "$p" 2>/dev/null || true
         find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
