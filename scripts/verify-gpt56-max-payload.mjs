@@ -10,7 +10,9 @@ if (!moduleDir) throw new Error("usage: verify-gpt56-max-payload.mjs <openclaw-m
 const distDir = path.join(moduleDir, "dist");
 const version = JSON.parse(fs.readFileSync(path.join(moduleDir, "package.json"), "utf8")).version;
 
-if (version === "2026.7.1") {
+const NATIVE_SUPPORT_VERSIONS = new Set(["2026.7.1", "2026.7.1-1"]);
+
+if (NATIVE_SUPPORT_VERSIONS.has(version)) {
   const policies = fs.readdirSync(distDir)
     .filter((name) => /^thinking-policy-.*\.js$/.test(name))
     .filter((name) => fs.readFileSync(path.join(distDir, name), "utf8").includes("function buildOpenAIThinkingProfile(params)"));
@@ -41,7 +43,7 @@ if (version === "2026.7.1") {
 }
 
 if (version !== "2026.6.11") {
-  throw new Error(`version ${version} is not reviewed; expected 2026.6.11 or 2026.7.1`);
+  throw new Error(`version ${version} is not reviewed; expected 2026.6.11 or one of ${[...NATIVE_SUPPORT_VERSIONS].join(", ")}`);
 }
 
 const transports = fs.readdirSync(distDir).filter((name) => /^openai-chatgpt-responses-.*\.js$/.test(name));

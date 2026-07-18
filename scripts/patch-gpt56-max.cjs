@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const LEGACY_PATCH_VERSION = "2026.6.11";
-const NATIVE_SUPPORT_VERSION = "2026.7.1";
+const NATIVE_SUPPORT_VERSIONS = new Set(["2026.7.1", "2026.7.1-1"]);
 const MARKER = "vianne-gpt56-max";
 
 function fail(message) {
@@ -185,13 +185,13 @@ function main() {
   if (!fs.existsSync(packageFile) || !fs.existsSync(distDir)) fail(`invalid OpenClaw module directory: ${moduleDir}`);
 
   const version = JSON.parse(fs.readFileSync(packageFile, "utf8")).version;
-  if (version === NATIVE_SUPPORT_VERSION) {
+  if (NATIVE_SUPPORT_VERSIONS.has(version)) {
     verifyNativeSupport(distDir);
     console.log(`[gpt56-max] verified native support in OpenClaw ${version}; patched files=0`);
     return;
   }
   if (version !== LEGACY_PATCH_VERSION) {
-    fail(`version ${version} is not reviewed; expected ${LEGACY_PATCH_VERSION} or ${NATIVE_SUPPORT_VERSION}`);
+    fail(`version ${version} is not reviewed; expected ${LEGACY_PATCH_VERSION} or one of ${[...NATIVE_SUPPORT_VERSIONS].join(", ")}`);
   }
 
   const thinkingFile = findSingle(distDir, /^sanitize-unicode-.*\.js$/, "thinking capability");
