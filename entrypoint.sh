@@ -300,25 +300,70 @@ restore_vilix_mcp_sdk() {
 
 restore_vilix_mcp_sdk || true
 
+repair_trusted_plugin_code_ownership() {
+    [ "$(id -u)" = "0" ] || return 0
+
+    shopt -s nullglob
+    local trusted_paths=(
+        "$OPENCLAW_STATE_DIR/extensions/claude-mem"
+        "$OPENCLAW_STATE_DIR/extensions/conversation-logger"
+        "$OPENCLAW_STATE_DIR/extensions/gati-sje-direct"
+        "$OPENCLAW_STATE_DIR/extensions/headroom"
+        "$OPENCLAW_STATE_DIR/extensions/latency-shield"
+        "$OPENCLAW_STATE_DIR/extensions/llama-cpp"
+        "$OPENCLAW_STATE_DIR/extensions/vilix-memory-hook"
+    )
+    local p
+
+    for p in "$PLUGINS_HOME/@openclaw"/*; do
+        trusted_paths+=("$p")
+    done
+
+    # Managed plugins are installed into generation-specific project trees in
+    # OpenClaw 2026.6+. A later plugin install can rewrite every project as the
+    # runtime user, so this repair must run after the final install/sync step.
+    for p in "$OPENCLAW_STATE_DIR/npm/projects"/openclaw-*/node_modules/@openclaw/*; do
+        trusted_paths+=("$p")
+    done
+    shopt -u nullglob
+
+    for p in "${trusted_paths[@]}"; do
+        if [ -d "$p" ]; then
+            chown -R root:root "$p" 2>/dev/null || true
+            find "$p" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$p" -type f -exec chmod a+r,go-w {} + 2>/dev/null || true
+        fi
+    done
+}
+
 # codex is installed/version-synced by the dedicated block below (its 2026.6.x
 # install path moved to npm/projects/, so the generic check never finds it);
 # brave-plugin removed: env OPENCLAW_DISABLED_PLUGINS disables brave anyway.
-# Keep every enabled external channel/runtime plugin on the same release as core;
-# OpenClaw 2026.7.1 reports version drift when an older Slack package survives
-# on the persistent volume.
+# Keep every enabled external channel/runtime plugin on the compatible release
+# line. Npm packaging-only hotfixes such as 2026.7.1-1 may publish a new core and
+# Codex package while channel plugins remain correctly published as 2026.7.1.
 REQUIRED_PLUGINS=(@openclaw/whatsapp @openclaw/acpx @openclaw/slack)
 CORE_NPM_VER=""; CORE_BAKED_VER=""
 [ -f "$NPM_MODULE_DIR/package.json" ] && CORE_NPM_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$NPM_MODULE_DIR/package.json" 2>/dev/null)"
 [ -f "$BAKED_MODULE_DIR/package.json" ] && CORE_BAKED_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$BAKED_MODULE_DIR/package.json" 2>/dev/null)"
 EFFECTIVE_CORE_VERSION="$(printf '%s\n%s\n' "$CORE_NPM_VER" "$CORE_BAKED_VER" | grep -v '^$' | sort -V | tail -1)"
+PLUGIN_RELEASE_VERSION="$EFFECTIVE_CORE_VERSION"
+if [[ "$PLUGIN_RELEASE_VERSION" =~ ^([0-9]{4}\.[0-9]+\.[0-9]+)-[0-9]+$ ]]; then
+    PLUGIN_RELEASE_VERSION="${BASH_REMATCH[1]}"
+fi
 plugins_to_sync=()
 for pkg in "${REQUIRED_PLUGINS[@]}"; do
     pkg_json="$PLUGINS_HOME/$pkg/package.json"
+    if [ ! -f "$pkg_json" ]; then
+        pkg_slug="${pkg#@openclaw/}"
+        alt_pkg_json="$(ls -1dt "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-"$pkg_slug"-*/node_modules/"$pkg"/package.json 2>/dev/null | head -1)"
+        [ -n "$alt_pkg_json" ] && pkg_json="$alt_pkg_json"
+    fi
     pkg_ver=""
     [ -f "$pkg_json" ] && pkg_ver="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$pkg_json" 2>/dev/null)"
-    if [ ! -f "$pkg_json" ] || { [ -n "$EFFECTIVE_CORE_VERSION" ] && [ "$pkg_ver" != "$EFFECTIVE_CORE_VERSION" ]; }; then
-        if [ -n "$EFFECTIVE_CORE_VERSION" ]; then
-            plugins_to_sync+=("$pkg@$EFFECTIVE_CORE_VERSION")
+    if [ ! -f "$pkg_json" ] || { [ -n "$PLUGIN_RELEASE_VERSION" ] && [ "$pkg_ver" != "$PLUGIN_RELEASE_VERSION" ]; }; then
+        if [ -n "$PLUGIN_RELEASE_VERSION" ]; then
+            plugins_to_sync+=("$pkg@$PLUGIN_RELEASE_VERSION")
         else
             plugins_to_sync+=("$pkg")
         fi
@@ -382,20 +427,20 @@ fi
 LLAMA_CPP_VER=""
 [ -f "$LLAMA_CPP_PKG_JSON" ] && LLAMA_CPP_VER="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$LLAMA_CPP_PKG_JSON" 2>/dev/null)"
 LLAMA_CPP_CONFIGURED="$(node -e "try{const c=require(process.argv[1]);process.stdout.write(c.plugins?.entries?.['llama-cpp']?.enabled===false?'0':c.plugins?.entries?.['llama-cpp']?'1':'0')}catch{process.stdout.write('0')}" "$OPENCLAW_STATE_DIR/openclaw.json" 2>/dev/null)"
-if [ -n "$EFFECTIVE_CORE_VERSION" ] && { [ "$LLAMA_CPP_VER" != "$EFFECTIVE_CORE_VERSION" ] || [ "$LLAMA_CPP_CONFIGURED" != "1" ]; }; then
-    echo "Local embedding plugin needs sync (plugin=${LLAMA_CPP_VER:-none} core=$EFFECTIVE_CORE_VERSION configured=$LLAMA_CPP_CONFIGURED)"
-    if [ "$(id -u)" = "0" ] && [ -d "$LLAMA_CPP_EXTENSION" ] && [ "$LLAMA_CPP_VER" != "$EFFECTIVE_CORE_VERSION" ]; then
+if [ -n "$PLUGIN_RELEASE_VERSION" ] && { [ "$LLAMA_CPP_VER" != "$PLUGIN_RELEASE_VERSION" ] || [ "$LLAMA_CPP_CONFIGURED" != "1" ]; }; then
+    echo "Local embedding plugin needs sync (plugin=${LLAMA_CPP_VER:-none} target=$PLUGIN_RELEASE_VERSION core=$EFFECTIVE_CORE_VERSION configured=$LLAMA_CPP_CONFIGURED)"
+    if [ "$(id -u)" = "0" ] && [ -d "$LLAMA_CPP_EXTENSION" ] && [ "$LLAMA_CPP_VER" != "$PLUGIN_RELEASE_VERSION" ]; then
         LLAMA_CPP_BACKUP="$OPENCLAW_STATE_DIR/backups/llama-cpp-${LLAMA_CPP_VER:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)"
         mkdir -p "$(dirname "$LLAMA_CPP_BACKUP")"
         mv "$LLAMA_CPP_EXTENSION" "$LLAMA_CPP_BACKUP"
         echo "Archived mismatched local embedding plugin at $LLAMA_CPP_BACKUP"
     fi
     if [ "$(id -u)" = "0" ]; then
-        su -s /bin/bash openclaw -c "OPENCLAW_GATEWAY_PORT='${INTERNAL_GATEWAY_PORT:-18789}' openclaw plugins install '$LLAMA_CPP_PACKAGE@$EFFECTIVE_CORE_VERSION' --force --pin" \
-            || echo "WARNING: llama.cpp provider sync to $EFFECTIVE_CORE_VERSION failed" >&2
+        su -s /bin/bash openclaw -c "OPENCLAW_GATEWAY_PORT='${INTERNAL_GATEWAY_PORT:-18789}' openclaw plugins install '$LLAMA_CPP_PACKAGE@$PLUGIN_RELEASE_VERSION' --force --pin" \
+            || echo "WARNING: llama.cpp provider sync to $PLUGIN_RELEASE_VERSION failed" >&2
     else
-        OPENCLAW_GATEWAY_PORT="${INTERNAL_GATEWAY_PORT:-18789}" openclaw plugins install "$LLAMA_CPP_PACKAGE@$EFFECTIVE_CORE_VERSION" --force --pin \
-            || echo "WARNING: llama.cpp provider sync to $EFFECTIVE_CORE_VERSION failed" >&2
+        OPENCLAW_GATEWAY_PORT="${INTERNAL_GATEWAY_PORT:-18789}" openclaw plugins install "$LLAMA_CPP_PACKAGE@$PLUGIN_RELEASE_VERSION" --force --pin \
+            || echo "WARNING: llama.cpp provider sync to $PLUGIN_RELEASE_VERSION failed" >&2
     fi
 else
     echo "Local embedding plugin matches core (${LLAMA_CPP_VER:-none})"
@@ -453,6 +498,10 @@ if [ "$(id -u)" = "0" ]; then
         echo "Codex plugin version matches core (${CODEX_VER:-none})"
     fi
 fi
+
+# This must be the final plugin-code ownership mutation before the gateway drops
+# to the runtime user. The Codex installer can rewrite sibling project trees.
+repair_trusted_plugin_code_ownership
 
 # ------------------------------------------------------------------------------
 # Patch: GPT-5.6 Sol true max reasoning over ChatGPT/Codex OAuth.
