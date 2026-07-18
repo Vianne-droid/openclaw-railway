@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const REVIEWED_VERSION = "2026.7.1";
+const REVIEWED_VERSIONS = new Set(["2026.7.1", "2026.7.1-1"]);
 const MARKER = "vianne-fast-native-hook-relay-v1";
 const ORIGINAL = "const executable = params.executable ?? resolveOpenClawCliExecutable();";
 
@@ -60,8 +60,8 @@ function main() {
   }
 
   const version = JSON.parse(fs.readFileSync(packageFile, "utf8")).version;
-  if (version !== REVIEWED_VERSION) {
-    fail(`version ${version} is not reviewed; expected ${REVIEWED_VERSION}`);
+  if (!REVIEWED_VERSIONS.has(version)) {
+    fail(`version ${version} is not reviewed; expected one of ${[...REVIEWED_VERSIONS].join(", ")}`);
   }
 
   const sourceClient = path.join(__dirname, "fast-native-hook-relay.mjs");
