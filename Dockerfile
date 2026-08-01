@@ -56,6 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # so it's baked into the image and not hidden by the Railway volume mount.
 RUN npm install -g openclaw@${OPENCLAW_VERSION}
 
+# OpenClaw 2026.7.1-1 can silently drop a request when a suppressed tool error
+# is followed by an interrupted turn with no final assistant payload. Apply the
+# reviewed, version-locked guard at build time so an empty final becomes a
+# visible recovery notice instead of being treated as successful delivery.
+COPY scripts/patch-empty-final.cjs /opt/openclaw-patches/patch-empty-final.cjs
+RUN node /opt/openclaw-patches/patch-empty-final.cjs /usr/local/lib/node_modules/openclaw
+
 # OpenClaw 2026.6.11 discovers GPT-5.6 Sol but does not expose its xhigh/max
 # capability map and rewrites max to xhigh on the ChatGPT/Codex OAuth transport.
 # Apply a version-locked patch at build time; the entrypoint re-applies it to

@@ -213,6 +213,22 @@ if [ "$SEEDED_NPM_PREFIX" = "true" ] && [ "$(id -u)" = "0" ]; then
     chown -R openclaw:openclaw "$NPM_PREFIX" 2>/dev/null || true
 fi
 
+# Re-apply the empty-final guard to both the persistent and baked packages at
+# every boot. The patcher is idempotent and version-locked: an unreviewed core
+# version is left untouched and reported loudly instead of being guessed at.
+if [ "$(id -u)" = "0" ]; then
+    EMPTY_FINAL_PATCH="/opt/openclaw-patches/patch-empty-final.cjs"
+    if [ -f "$EMPTY_FINAL_PATCH" ]; then
+        for module_dir in "$NPM_MODULE_DIR" "$BAKED_MODULE_DIR"; do
+            [ -f "$module_dir/package.json" ] || continue
+            node "$EMPTY_FINAL_PATCH" "$module_dir" \
+                || echo "WARNING: empty-final recovery patch not applied to $module_dir" >&2
+        done
+    else
+        echo "WARNING: empty-final recovery patch script missing" >&2
+    fi
+fi
+
 # Create symlinks from openclaw home into the persistent volume
 # so $HOME/.openclaw resolves to /data/.openclaw and tool data persists
 ln -sfn "$OPENCLAW_STATE_DIR" /home/openclaw/.openclaw
