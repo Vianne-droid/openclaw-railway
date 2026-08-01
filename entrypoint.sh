@@ -499,6 +499,45 @@ if [ "$(id -u)" = "0" ]; then
     fi
 fi
 
+# ------------------------------------------------------------------------------
+# Guard Codex final delivery against late native-subagent steering.
+#
+# A protected task-completion event can arrive after Codex has completed its
+# terminal assistant item but before OpenClaw closes and delivers the turn. If
+# that event reopens the turn, a later mini-answer can replace the complete
+# answer. This reviewed, version-locked patch quarantines only that protected
+# late event: an ordinary duplicate is acknowledged without steering, while a
+# media-bearing completion is deferred so its asset is not lost. Ordinary user
+# steering and pre-terminal task completions remain unchanged.
+# ------------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+    CODEX_FINAL_DELIVERY_PATCH="/opt/openclaw-patches/patch-codex-final-delivery.cjs"
+    if [ -f "$CODEX_FINAL_DELIVERY_PATCH" ]; then
+        shopt -s nullglob
+        codex_final_patch_targets=("$NPM_MODULE_DIR" "$BAKED_MODULE_DIR")
+        for plugin_dir in "$OPENCLAW_STATE_DIR"/npm/projects/openclaw-codex-*/node_modules/@openclaw/codex; do
+            plugin_version="$(node -e "try{process.stdout.write(require(process.argv[1]).version||'')}catch{}" "$plugin_dir/package.json" 2>/dev/null)"
+            case "$plugin_version" in
+                2026.7.1|2026.7.1-1) codex_final_patch_targets+=("$plugin_dir") ;;
+            esac
+        done
+        shopt -u nullglob
+
+        declare -A codex_final_patch_seen=()
+        for module_dir in "${codex_final_patch_targets[@]}"; do
+            [ -f "$module_dir/package.json" ] || continue
+            [ -z "${codex_final_patch_seen[$module_dir]:-}" ] || continue
+            codex_final_patch_seen[$module_dir]=1
+            if ! node "$CODEX_FINAL_DELIVERY_PATCH" "$module_dir"; then
+                echo "WARNING: Codex final-delivery guard not applied to $module_dir" >&2
+            fi
+        done
+        unset codex_final_patch_seen
+    else
+        echo "WARNING: Codex final-delivery guard script missing" >&2
+    fi
+fi
+
 # This must be the final plugin-code ownership mutation before the gateway drops
 # to the runtime user. The Codex installer can rewrite sibling project trees.
 repair_trusted_plugin_code_ownership

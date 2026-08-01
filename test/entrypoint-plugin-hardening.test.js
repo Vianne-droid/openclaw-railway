@@ -42,7 +42,10 @@ test('trusted plugin ownership is repaired after the exact Codex sync', () => {
   );
 
   const codexSync = entrypoint.indexOf('openclaw plugins install @openclaw/codex@$CORE_VER --force');
+  const finalDeliveryPatch = entrypoint.indexOf('patch-codex-final-delivery.cjs');
   const finalRepair = entrypoint.lastIndexOf('\nrepair_trusted_plugin_code_ownership\n');
   assert.ok(codexSync >= 0, 'exact Codex version sync must remain present');
+  assert.ok(finalDeliveryPatch > codexSync, 'Codex final-delivery patch must run after Codex sync');
+  assert.ok(finalRepair > finalDeliveryPatch, 'ownership repair must run after the final-delivery patch');
   assert.ok(finalRepair > codexSync, 'ownership repair must run after the Codex installer');
 });

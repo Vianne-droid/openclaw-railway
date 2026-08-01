@@ -64,10 +64,12 @@ COPY scripts/patch-gpt56-max.cjs /opt/openclaw-patches/patch-gpt56-max.cjs
 COPY scripts/verify-gpt56-max-payload.mjs /opt/openclaw-patches/verify-gpt56-max-payload.mjs
 COPY scripts/fast-native-hook-relay.mjs /opt/openclaw-patches/fast-native-hook-relay.mjs
 COPY scripts/patch-native-hook-relay.cjs /opt/openclaw-patches/patch-native-hook-relay.cjs
+COPY scripts/patch-codex-final-delivery.cjs /opt/openclaw-patches/patch-codex-final-delivery.cjs
 RUN node /opt/openclaw-patches/patch-gpt56-max.cjs /usr/local/lib/node_modules/openclaw && \
     node /opt/openclaw-patches/verify-gpt56-max-payload.mjs /usr/local/lib/node_modules/openclaw && \
     node --check /opt/openclaw-patches/fast-native-hook-relay.mjs && \
-    node /opt/openclaw-patches/patch-native-hook-relay.cjs /usr/local/lib/node_modules/openclaw
+    node /opt/openclaw-patches/patch-native-hook-relay.cjs /usr/local/lib/node_modules/openclaw && \
+    node /opt/openclaw-patches/patch-codex-final-delivery.cjs /usr/local/lib/node_modules/openclaw
 
 # Conversation logger's Vilix bridge imports the MCP SDK from the persistent
 # /data npm tree. Bake a clean copy into the image so entrypoint can restore it
