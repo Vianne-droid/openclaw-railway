@@ -28,7 +28,7 @@ COPY src/ ./src/
 FROM node:24-bookworm-slim AS runtime
 
 # Build args for version and optional features
-ARG OPENCLAW_VERSION=2026.7.1
+ARG OPENCLAW_VERSION=2026.9.9
 ARG VILIX_MCP_SDK_VERSION=1.29.0
 ARG INSTALL_SIGNAL_CLI=false
 ARG INSTALL_BROWSER=true
